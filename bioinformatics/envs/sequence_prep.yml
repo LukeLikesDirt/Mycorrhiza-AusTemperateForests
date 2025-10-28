@@ -1,0 +1,25 @@
+name: sequence_prep
+
+channels:
+  - conda-forge
+  - bioconda
+  - r
+
+dependencies:
+  - r-base=4.3.3
+  - r-essentials=4.3
+  - r-biocmanager=1.30.25
+  - r-seqinr=4.2_36
+  - bioconductor-dada2=1.30.0
+  - bioconductor-shortread=1.60.0
+  - bioconductor-dada2=1.30.0
+  - fastqc=0.12.1
+  - multiqc=1.24.1
+  - trimmomatic=0.39
+  - cutadapt=5.1
+  - itsxpress=2.1.0
+  - vsearch=2.22.1
+  - usearch=12.0_beta
+  - seqkit=2.10.1
+  - bbmap=39.01
+  
