@@ -1,0 +1,81 @@
+Starting chimera filtering at Tue Oct 28 09:16:18 AEDT 2025
+Dereplicating across samples...
+vsearch v2.30.1_linux_x86_64, 376.1GB RAM, 96 cores
+https://github.com/torognes/vsearch
+
+Dereplicating file ../data//denoised.fasta 100%
+52445964 nt in 104773 seqs, min 430, max 570, avg 501
+minseqlength 430: 14755 sequences discarded.
+Sorting 100%
+63152 unique sequences, avg cluster 139.9, median 0, max 434009
+Writing FASTA output file 100%
+Writing uc file, first part 100%
+Writing uc file, second part 100%
+Preclustering reads...
+vsearch v2.30.1_linux_x86_64, 376.1GB RAM, 96 cores
+https://github.com/torognes/vsearch
+
+Reading file ../data//chimera_filtered/all.derep.fasta 100%
+31606532 nt in 63152 seqs, min 430, max 570, avg 500
+Masking 100%
+Sorting by abundance 100%
+Counting k-mers 100%
+Clustering 100%
+Sorting clusters 100%
+Writing clusters 100%
+Clusters: 35090 Size min 1, max 447013, avg 1.8
+Singletons: 2770, 4.4% of seqs, 7.9% of clusters
+Starting de novo chimera detection...
+vsearch v2.30.1_linux_x86_64, 376.1GB RAM, 96 cores
+https://github.com/torognes/vsearch
+
+Reading file ../data//chimera_filtered/all.preclustered.fasta 100%
+17538875 nt in 35090 seqs, min 430, max 570, avg 500
+Masking 100%
+Sorting by abundance 100%
+Counting k-mers 100%
+Detecting chimeras 100%
+Found 4336 (12.4%) chimeras, 30754 (87.6%) non-chimeras,
+and 0 (0.0%) borderline sequences in 35090 unique sequences.
+Taking abundance information into account, this corresponds to
+106673 (1.2%) chimeras, 8726910 (98.8%) non-chimeras,
+and 0 (0.0%) borderline sequences in 8833583 total sequences.
+Starting reference-based chimera detection...
+vsearch v2.30.1_linux_x86_64, 376.1GB RAM, 96 cores
+https://github.com/torognes/vsearch
+
+Reading file ../data/ref_seqs/ref_seqs_V4.fasta 100%
+22879408 nt in 46873 seqs, min 400, max 550, avg 488
+Masking 100%
+Counting k-mers 100%
+Creating k-mer index 100%
+Detecting chimeras 100%
+Found 1467 (4.8%) chimeras, 29236 (95.1%) non-chimeras,
+and 51 (0.2%) borderline sequences in 30754 unique sequences.
+Taking abundance information into account, this corresponds to
+157331 (1.8%) chimeras, 8470045 (97.1%) non-chimeras,
+and 99534 (1.1%) borderline sequences in 8726910 total sequences.
+Extracting all non-chimeric sequences...
+Generating ASV table...
+vsearch v2.30.1_linux_x86_64, 376.1GB RAM, 96 cores
+https://github.com/torognes/vsearch
+
+Reading file ../data//chimera_filtered/all.nonchimeras.fasta 100%
+45343464 nt in 90561 seqs, min 430, max 570, avg 501
+Masking 100%
+Sorting by abundance 100%
+Counting k-mers 100%
+Clustering 100%
+Sorting clusters 100%
+Writing clusters 100%
+Clusters: 50436 Size min 1, max 434413, avg 1.8
+Singletons: 3764, 4.2% of seqs, 7.5% of clusters
+Writing OTU table (classic) 100%
+
+Number of unique sequences and ASVs
+    Unique non-chimeric sequence: 90561
+    Clustered ASVs: 50436
+Chimera filtering completed at Tue Oct 28 09:18:16 AEDT 2025
+Chimera filtered sequences saved in: ../data//chimera_filtered
+Final non-chimeric fasta: ../data//chimera_filtered/all.nonchimeras.fasta
+All processes completed at Tue Oct 28 09:18:16 AEDT 2025
