@@ -28,6 +28,7 @@ Place your data files in the `data/raw/` directory:
 1. **soil_chemistry.csv** - Soil nutrient data
    - Required columns: site_id, N_total, P_total, pH
    - Optional: N_available, P_available, C_total, moisture
+   - See `data/raw/soil_chemistry_EXAMPLE.csv` for format
 
 2. **fungal_otus.csv** - OTU/ASV abundance table
    - First column: OTU_ID
@@ -40,8 +41,9 @@ Place your data files in the `data/raw/` directory:
 4. **sample_metadata.csv** - Sample information
    - Required columns: sample_id, site_id
    - Optional: date_collected, latitude, longitude, forest_type, elevation
+   - See `data/raw/sample_metadata_EXAMPLE.csv` for format
 
-See `data/raw/*_EXAMPLE.csv` files for formatting examples.
+Note: Example files are provided for soil chemistry and sample metadata. Use these as templates for formatting your fungal sequence and taxonomy data.
 
 ## Step 3: Run the Analysis Pipeline
 
@@ -102,7 +104,7 @@ Key output files:
 - **Solution**: Install packages manually: `install.packages("package_name")`
 
 **Issue**: Insufficient sequencing depth warning
-- **Solution**: Check `sequencing_depth_summary.csv` and consider removing low-coverage samples
+- **Solution**: Check `data/processed/sequencing_depth_summary.csv` and consider removing low-coverage samples
 
 **Issue**: No significant relationships detected
 - **Solution**: Check if you have sufficient sample size and environmental variation
