@@ -1,3 +1,7 @@
+
+# Data heavy files
+bioinformatics/**/data/
+
 # History files
 .Rhistory
 .Rapp.history
