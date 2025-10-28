@@ -33,17 +33,19 @@ Place your data files in the `data/raw/` directory:
 2. **fungal_otus.csv** - OTU/ASV abundance table
    - First column: OTU_ID
    - Subsequent columns: Sample abundances (one column per sample)
+   - See `data/raw/fungal_otus_EXAMPLE.csv` for format
 
 3. **fungal_taxonomy.csv** - Taxonomic assignments
    - Required columns: OTU_ID, Phylum
    - Optional: Kingdom, Class, Order, Family, Genus, Species
+   - See `data/raw/fungal_taxonomy_EXAMPLE.csv` for format
 
 4. **sample_metadata.csv** - Sample information
    - Required columns: sample_id, site_id
    - Optional: date_collected, latitude, longitude, forest_type, elevation
    - See `data/raw/sample_metadata_EXAMPLE.csv` for format
 
-Note: Example files are provided for soil chemistry and sample metadata. Use these as templates for formatting your fungal sequence and taxonomy data.
+**Note**: Example files are provided for all four required data types to demonstrate the expected CSV format and column structure.
 
 ## Step 3: Run the Analysis Pipeline
 

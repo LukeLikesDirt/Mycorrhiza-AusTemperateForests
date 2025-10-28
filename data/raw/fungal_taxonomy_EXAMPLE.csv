@@ -1,0 +1,18 @@
+# Example Fungal Taxonomy Table
+# This is a template showing the expected format for taxonomic assignments
+# Replace these example values with your actual taxonomic data from UNITE or other databases
+
+OTU_ID,Kingdom,Phylum,Class,Order,Family,Genus,Species
+OTU_0001,Fungi,Basidiomycota,Agaricomycetes,Agaricales,Cortinariaceae,Cortinarius,Cortinarius_sp
+OTU_0002,Fungi,Ascomycota,Sordariomycetes,Hypocreales,Nectriaceae,Fusarium,Fusarium_oxysporum
+OTU_0003,Fungi,Basidiomycota,Agaricomycetes,Russulales,Russulaceae,Russula,Unassigned
+OTU_0004,Fungi,Ascomycota,Leotiomycetes,Helotiales,Helotiaceae,Unassigned,Unassigned
+OTU_0005,Fungi,Basidiomycota,Agaricomycetes,Boletales,Boletaceae,Leccinum,Leccinum_scabrum
+
+# Format notes:
+# - OTU_ID must match the IDs in fungal_otus.csv
+# - Use "Unassigned" for unidentified taxonomic levels
+# - Follow standard taxonomic hierarchy: Kingdom > Phylum > Class > Order > Family > Genus > Species
+# - Species names can include "sp" for unidentified species within a genus
+# - Use underscore (_) instead of space in species names
+# - Recommended database: UNITE for fungi (https://unite.ut.ee/)
