@@ -1,0 +1,18 @@
+# Example Fungal OTU/ASV Table
+# This is a template showing the expected format for fungal abundance data
+# Replace these example values with your actual sequence data
+# Rows = OTUs/ASVs, Columns = Samples
+
+OTU_ID,sample_01,sample_02,sample_03,sample_04,sample_05
+OTU_0001,245,312,189,267,421
+OTU_0002,456,523,398,445,612
+OTU_0003,89,67,123,98,145
+OTU_0004,1023,987,1156,1089,1234
+OTU_0005,34,45,28,31,52
+
+# Format notes:
+# - First column: OTU_ID (unique identifier for each OTU/ASV)
+# - Subsequent columns: Raw read counts for each sample
+# - Column names must match sample_id in sample_metadata.csv
+# - Use integer values (read counts)
+# - Missing values should be represented as 0 (not NA)

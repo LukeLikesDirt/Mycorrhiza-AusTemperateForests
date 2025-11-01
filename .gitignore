@@ -45,11 +45,24 @@ vignettes/*.pdf
 # R Environment Variables
 .Renviron
 
-# pkgdown site
-docs/
+# pkgdown site (if this becomes an R package)
+# docs/
 
 # translation temp files
 po/*~
 
 # RStudio Connect folder
 rsconnect/
+
+# Project-specific ignores
+data/raw/*.csv
+data/processed/*.csv
+data/processed/*.txt
+outputs/figures/*.png
+outputs/figures/*.jpg
+outputs/figures/*.pdf
+outputs/tables/*.csv
+outputs/tables/*.txt
+outputs/tables/*.rds
+setup_session_info.txt
+!data/raw/*_EXAMPLE.csv
