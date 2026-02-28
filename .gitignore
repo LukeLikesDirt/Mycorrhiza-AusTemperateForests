@@ -3,6 +3,7 @@
 
 # Data heavy files
 bioinformatics/**/data/
+bioinformatics/**/*.html
 
 # History files
 .Rhistory

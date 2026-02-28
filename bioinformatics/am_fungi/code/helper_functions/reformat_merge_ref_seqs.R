@@ -85,22 +85,22 @@ parse_maarjam_header <- function(header) {
   species_idx <- genus_idx + 1
   species <- NA
   
-  if (length(species_idx) > 0 && species_idx <= length(parts)) {
-    potential_species <- parts[species_idx]
-    
-    # Check if it's "sp." or starts with uppercase/numbers (unclassified)
-    if (potential_species == "sp." || grepl("^[A-Z0-9]", potential_species)) {
-      species <- "unclassified"
-    } else if (grepl("^[a-z]", potential_species)) {
-      # Classified species (starts with lowercase)
-      species <- potential_species
-    } else {
-      # Default to unclassified
-      species <- "unclassified"
-    }
+if (length(species_idx) > 0 && species_idx <= length(parts)) {
+  potential_species <- parts[species_idx]
+  
+  # Check if it's "sp.", "cf.", or contains uppercase/numbers anywhere (unclassified)
+  if (potential_species %in% c("sp.", "cf.") || grepl("[A-Z0-9]", potential_species)) {
+    species <- "unclassified"
+  } else if (grepl("^[a-z]", potential_species)) {
+    # Classified species (starts with lowercase and no uppercase/numbers anywhere)
+    species <- potential_species
   } else {
+    # Default to unclassified
     species <- "unclassified"
   }
+} else {
+  species <- "unclassified"
+}
   
   return(list(id = id, family = family, genus = genus, species = species))
 }
@@ -224,7 +224,7 @@ merge_and_reformat_fasta <- function(maarjam_file, eukaryome_file, output_file) 
   cat("Maarjam headers processed:", matched + unmatched, "\n")
   cat("  Successfully matched:", matched, "\n")
   cat("  Unmatched (no taxonomy):", unmatched, "\n")
-  cat("Eukaryome sequences added:", sum(grepl("^>", eukaryome_fasta)), "\n")
+  cat("Eukaryome sequences added:", sum(grepl("^>", eukaryome_fasta_clean)), "\n")
   cat("Total sequences in merged file:", sum(grepl("^>", merged_fasta)), "\n")
   cat("Output written to:", output_file, "\n")
 }

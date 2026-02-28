@@ -17,7 +17,7 @@ args <- commandArgs(trailingOnly = TRUE)
 
 # Check if correct number of arguments provided
 if (length(args) != 3) {
-  stop("Usage: Rscript format_fasta_classification.R <input_fasta> <output_fasta> <classification_output>")
+  stop("Rscript format_fasta_classification.R <input_fasta> <output_fasta> <classification_output>")
 }
 
 fasta_in <- args[1]
@@ -56,6 +56,7 @@ for (i in seq_along(header_indices)) {
 }
 
 # Process headers to create classification data
+# Process headers to create classification data
 classification_df <- fasta_df %>%
   # Extract ID (everything before the first semicolon)
   mutate(id = str_extract(header, "(?<=^>)[^;]+")) %>%
@@ -74,6 +75,8 @@ classification_df <- fasta_df %>%
                 ~ifelse(.x == "unclassified", "unidentified", .x))) %>%
   # Replace EKARYOME genus predictions to "unidentified"
   mutate(genus = ifelse(grepl("_gen\\d+$", genus), "unidentified", genus)) %>%
+  # Remove parentheses and their contents from species_epithet for all kingdoms
+  mutate(species_epithet = str_remove(species_epithet, "\\([^\\)]+\\)") %>% str_trim()) %>%
   # Create proper species names (genus + species epithet for identified species)
   mutate(
     species = case_when(
@@ -87,28 +90,34 @@ classification_df <- fasta_df %>%
     )
   ) %>%
   # Reformat genus names that contain kingdom name in parentheses
+  # Add "_kng_" + kingdom name for all kingdoms except Fungi
   mutate(
-    genus = ifelse(
-      grepl("\\(", genus),
-      paste0(
-        str_extract(genus, "^[^\\(]+"),               # Genus name before "("
-        "_kng_",
-        str_extract(genus, "(?<=\\()[^\\)]+")         # Kingdom name inside "()"
-      ),
-      genus
+    genus = case_when(
+      # If genus contains parentheses and kingdom is NOT Fungi, add _kng_ format
+      grepl("\\(", genus) & kingdom != "Fungi" ~ 
+        paste0(
+          str_extract(genus, "^[^\\(]+") %>% str_trim(),  # Genus name before "("
+          "_kng_",
+          str_extract(genus, "(?<=\\()[^\\)]+")           # Kingdom name inside "()"
+        ),
+      # If genus contains parentheses and kingdom IS Fungi, just remove parentheses
+      grepl("\\(", genus) & kingdom == "Fungi" ~ 
+        str_extract(genus, "^[^\\(]+") %>% str_trim(),
+      # Otherwise keep genus as is
+      TRUE ~ genus
     )
   ) %>%
   # Calculate taxonomic completeness score
   mutate(
-      tax_score = 
-        (!is.na(kingdom) & kingdom != "" & kingdom != "unidentified") +
-        (!is.na(phylum) & phylum != "" & phylum != "unidentified") +
-        (!is.na(class) & class != "" & class != "unidentified") +
-        (!is.na(order) & order != "" & order != "unidentified") +
-        (!is.na(family) & family != "" & family != "unidentified") +
-        (!is.na(genus) & genus != "" & genus != "unidentified") +
-        (!is.na(species) & species != "" & species != "unidentified")
-    ) %>%
+    tax_score = 
+      (!is.na(kingdom) & kingdom != "" & kingdom != "unidentified") +
+      (!is.na(phylum) & phylum != "" & phylum != "unidentified") +
+      (!is.na(class) & class != "" & class != "unidentified") +
+      (!is.na(order) & order != "" & order != "unidentified") +
+      (!is.na(family) & family != "" & family != "unidentified") +
+      (!is.na(genus) & genus != "" & genus != "unidentified") +
+      (!is.na(species) & species != "" & species != "unidentified")
+  ) %>%
   # Select unique IDs (keeping highest taxonomic score)
   group_by(id) %>%
   arrange(desc(tax_score), id) %>%
@@ -120,7 +129,7 @@ classification_df <- fasta_df %>%
 # Check for duplicated IDs and exit with a warning if found
 if (any(duplicated(classification_df$id))) {
   dup_ids <- classification_df$id[duplicated(classification_df$id)]
-  stop(paste("Error: Duplicate IDs found in classification data:", paste(dup_ids, collapse = ", ")))
+  stop(paste("Duplicate IDs found in classification data:", paste(dup_ids, collapse = ", ")))
 }
 
 # Create new FASTA file using header and sequence columns

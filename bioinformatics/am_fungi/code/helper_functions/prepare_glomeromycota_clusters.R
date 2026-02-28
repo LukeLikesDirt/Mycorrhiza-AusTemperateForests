@@ -34,7 +34,8 @@ format_blast <- function(blast_file, classification_file, minlen) {
       subject_coverage = pmin(length / slen, 1.0),
       query_coverage = pmin(length / qlen, 1.0),
       score = pident / 100,
-      score = if_else(length < minlen, (score * length) / minlen, score)
+      score = if_else(length < minlen, (score * length) / minlen, score),
+      score = round(score / 0.005) * 0.005  # <-- Round to nearest 0.005 (i.e. 1 in 200 base pair accuracy)
     ) %>%
     left_join(fread(classification_file), by = c("reference_id" = "id")) %>%
     select(otu_id, reference_id, kingdom, phylum, class, order, family, genus, species, 
@@ -43,7 +44,7 @@ format_blast <- function(blast_file, classification_file, minlen) {
 
 # Main classification function
 classify_taxonomy <- function(blast_file, classification_file, cutoff_file, rank = "species",
-                              minlen = 450, min_subject_coverage = 0.9, min_query_coverage = 0.9,
+                              minlen = minlen, min_subject_coverage = 0.95, min_query_coverage = 0.95,
                               apply_coverage_filter = TRUE, excluded_otus = NULL) {
   
   valid_ranks <- c("species", "genus", "family", "order", "class", "phylum", "kingdom")
@@ -160,12 +161,17 @@ get_rank_cutoff <- function(taxa_file, unique_taxa_cutoffs, cutoff_file, rank, s
 
 # Clustering function
 cluster_at_rank <- function(this_rank, this_subrank, this_supertaxon, this_superrank = NULL, 
-                           taxa_cutoffs, asv_sequences, minlen, threads) {
+                            taxa_cutoffs, asv_sequences, minlen, threads) {
   
   # Initialise or filter taxa file
   if (!is.null(this_superrank)) {
-    taxa_cutoffs <- fread(paste0("./tmp_clusters/", this_superrank, "_clusters.txt")) %>%
-      filter(!!sym(this_superrank) == this_supertaxon)
+    taxa_cutoffs <- fread(paste0("./tmp_clusters/", this_superrank, "_clusters.txt"))
+    
+    # Only filter if not processing all taxa
+    if (this_supertaxon != "all") {
+      taxa_cutoffs <- taxa_cutoffs %>%
+        filter(!!sym(this_superrank) == this_supertaxon)
+    }
   }
   
   # Ensure abundance column exists
@@ -267,7 +273,7 @@ cluster_at_rank <- function(this_rank, this_subrank, this_supertaxon, this_super
         score = if_else(alignment_length < minlen, (score * alignment_length) / minlen, score),
         abundance = as.integer(str_extract(otu_id, "(?<=;size=)\\d+"))
       ) %>%
-      filter(score >= this_cutoff, query_coverage >= 90 | reference_coverage >= 90)
+      filter(score >= this_cutoff, query_coverage >= 95 | reference_coverage >= 95)
     
     # Check if any sequences passed the filters
     if (nrow(new_clusters) == 0) {
@@ -479,51 +485,56 @@ for (rank in names(superranks_list)) {
 
 # Run clustering ---------------------------------------------------------------
 
-# (1) Eukarya clustering at kingdom level
-cluster_at_rank("kingdom", "phylum", "Eukarya", NULL, taxa_cutoffs, asv_sequences, minlen, threads)
+# (1) GLOMEROMYCOTA: Filter and cluster at family level
+fwrite(
+  taxa_cutoffs %>% filter(phylum == "Glomeromycota"),
+  "./tmp_clusters/order_glom_clusters.txt",
+  sep = "\t"
+)
 
-# (2) Fungi clustering at phylum level
-cluster_at_rank("phylum", "class", "Fungi", "kingdom", taxa_cutoffs, asv_sequences, minlen, threads)
+cluster_at_rank("family", "genus", "all", "order_glom", taxa_cutoffs, asv_sequences, minlen, threads)
 
-# (3) Glomeromycota clustering at class level
-cluster_at_rank("class", "order", "Glomeromycota", "phylum", taxa_cutoffs, asv_sequences, minlen, threads)
-
-# Write final outputs ----------------------------------------------------------
-
-# Standard column order
+# IMPORTANT: Save Glomeromycota results immediately before they get overwritten
 standard_cols <- c("otu_id", "reference_id", "kingdom", "phylum", "class", "order", 
                    "family", "genus", "species", "rank", "cutoff", "score", "abundance",
                    "kingdom_cutoff", "phylum_cutoff", "class_cutoff", "order_cutoff", 
                    "family_cutoff", "genus_cutoff", "species_cutoff")
 
-# Glomeromycota
-fread("./tmp_clusters/class_clusters.txt") %>%
+glom_parts <- list()
+if (file.exists("./tmp_clusters/family_clusters.txt")) {
+  glom_parts[[1]] <- fread("./tmp_clusters/family_clusters.txt")
+}
+if (file.exists("./tmp_clusters/family_unidentified.txt")) {
+  glom_parts[[2]] <- fread("./tmp_clusters/family_unidentified.txt")
+}
+
+glom_clusters <- bind_rows(glom_parts) %>%
+  select(any_of(standard_cols))
+
+fwrite(glom_clusters, "./tmp_clusters/glomeromycota_clusters.txt", sep = "\t")
+glom_otu_ids <- glom_clusters %>% pull(otu_id)
+
+# (2) NON-GLOMEROMYCOTA: Filter and cluster at family level
+fwrite(
+  taxa_cutoffs %>% filter(phylum != "Glomeromycota" | is.na(phylum) | phylum == "unidentified"),
+  "./tmp_clusters/order_nonglom_clusters.txt",
+  sep = "\t"
+)
+
+cluster_at_rank("family", "genus", "all", "order_nonglom", taxa_cutoffs, asv_sequences, minlen, threads)
+
+# Write final outputs ----------------------------------------------------------
+
+# (2) Non-Glomeromycota clusters (only family-identified)
+non_glom_clusters <- fread("./tmp_clusters/family_clusters.txt") %>%
+  filter(!otu_id %in% glom_otu_ids) %>%
+  select(any_of(standard_cols))
+
+fwrite(non_glom_clusters, "./tmp_clusters/family_non_glomeromycota_clusters.txt", sep = "\t")
+non_glom_otu_ids <- non_glom_clusters %>% pull(otu_id)
+
+# (3) Unidentified clusters (everything else)
+taxa_cutoffs %>%
+  filter(!otu_id %in% c(glom_otu_ids, non_glom_otu_ids)) %>%
   select(any_of(standard_cols)) %>%
-  fwrite("./tmp_clusters/glomeromycota_clusters.txt", sep = "\t")
-
-# Non-glomeromycota
-bind_rows(
-  fread("./tmp_clusters/kingdom_unidentified.txt"),
-  fread("./tmp_clusters/phylum_unidentified.txt"),
-  fread("./tmp_clusters/phylum_clusters.txt"),
-  fread("./tmp_clusters/phylum_unidentified.txt"),
-  fread("./tmp_clusters/class_unidentified.txt")
-) %>%
-  select(any_of(standard_cols)) %>%
-  # Remove any OTUs already classified as Glomeromycota
-  anti_join(
-    fread("./tmp_clusters/glomeromycota_clusters.txt") %>% select(otu_id),
-    by = "otu_id"
-  ) %>%
-  fwrite("tmp_clusters/non_glomeromycota_clusters.txt", sep = "\t")
-
-# Cleanup
-unlink("tmp", recursive = TRUE)
-file.remove(c(
-  "tmp_clusters/kingdom_unidentified.txt", "tmp_clusters/phylum_unidentified.txt",
-  "tmp_clusters/phylum_clusters.txt", "tmp_clusters/kingdom_clusters.txt",
-  "tmp_clusters/class_clusters.txt", "tmp_clusters/class_unidentified.txt"
-  ))
-
-# Summary ----------------------------------------------------------------------
-message("\nClassification complete! Check tmp_clusters/ for results.")
+  fwrite("./tmp_clusters/family_unidentified_clusters.txt", sep = "\t")

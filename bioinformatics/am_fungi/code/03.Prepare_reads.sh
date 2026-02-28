@@ -26,9 +26,12 @@ export readonly MIN_OVERLAP_FWD=18                                   # Cutadapt:
 export readonly MIN_OVERLAP_REV=20                                   # Cutadapt: Overlap for the reverse primer
 export readonly MAX_ERROR_RATE=1                                     # Cutadapt & DADA2: Maximum error rate
 export readonly MAX_N=0                                              # DADA2: Maximum number of ambiguous bases (N) allowed
-export readonly IDENTITY=0.99                                        # VSEARCH: Minimum identity for preclustering during chimera removal
+export readonly IDENTITY=0.995                                       # VSEARCH: Minimum identity for preclustering during chimera removal
 export readonly MAP_SCRIPT="./helper_functions/map.pl"               # Read mapping script (see the following link for an example pipeline that does not require a mapping file: https://github.com/torognes/vsearch/wiki/Alternative-VSEARCH-pipeline)
 export readonly REF_SEQS="../data/ref_seqs/ref_seqs_V4.fasta"        # Reference sequences for chimera removal
+export readonly MIN_LENGTH=450                                       # Minimum sequence length
+export readonly MAX_LENGTH=550                                       # Maximum sequence length
+
 
 ################################################################################
 # FUNCTION: Rename fastq files
@@ -252,6 +255,7 @@ chimera_filter() {
     vsearch \
         --derep_fulllength "$OUTPUT/denoised.fasta" \
         --sizein --sizeout \
+        --minseqlength $MIN_LENGTH --maxseqlength $MAX_LENGTH \
         --fasta_width 0 \
         --uc "$CHIMERA_FILTERED_DIR/all.derep.uc" \
         --output "$CHIMERA_FILTERED_DIR/all.derep.fasta"
@@ -290,13 +294,13 @@ chimera_filter() {
     echo "Generating ASVs..."
 
     vsearch \
-        --cluster_unoise "$CHIMERA_FILTERED_DIR/all.nonchimeras.fasta" \
+        --cluster_size "$CHIMERA_FILTERED_DIR/all.nonchimeras.fasta" \
+        --id 1.0 \
         --threads $NUM_THREADS \
         --sizein --sizeout \
+        --strand plus \
         --relabel_sha \
-        --uc "$OUTPUT/ASVs.uc" \
         --centroids "$OUTPUT/ASVs.fasta" \
-        --biomout "$OUTPUT/ASVs.biom" \
         --otutabout "$OUTPUT/ASVs.txt"
 
     # Rename the header in the file
@@ -305,7 +309,23 @@ chimera_filter() {
     printf '\nNumber of unique sequences and ASVs\n'
     printf '    Unique non-chimeric sequence: %s\n' "$(grep -c "^>" "$CHIMERA_FILTERED_DIR/all.nonchimeras.fasta")"
     printf '    Clustered ASVs: %s\n' "$(grep -c "^>" "$OUTPUT/ASVs.fasta")"
+    
+    # Generate a 99.5% clustered otu table for abundance-based sample filtering
+    vsearch \
+        --cluster_size "$CHIMERA_FILTERED_DIR/all.nonchimeras.fasta" \
+        --id $IDENTITY \
+        --threads $NUM_THREADS \
+        --sizein --sizeout \
+        --strand plus \
+        --relabel_sha \
+        --centroids "$OUTPUT/OTUs.fasta" \
+        --otutabout "$OUTPUT/OTUs.txt"
 
+    # Rename the header in the file
+    sed -i '1s/#OTU ID/OTU_ID/' "$OUTPUT/OTUs.txt"
+
+    printf '\nNumber of OTUs clustered at %.1f%% identity\n' "$(echo "$IDENTITY * 100" | bc -l)"
+    printf '    Clustered OTUs: %s\n' "$(grep -c "^>" "$OUTPUT/OTUs.fasta")"
 
 }
 
