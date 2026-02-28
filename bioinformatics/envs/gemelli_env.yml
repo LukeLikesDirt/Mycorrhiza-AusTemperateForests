@@ -1,0 +1,23 @@
+name: gemelli_env
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - numpy
+  - scipy
+  - pandas
+  - scikit-bio
+  - biom-format
+  - scikit-learn
+  - matplotlib
+  - seaborn
+  - tqdm
+  - h5py
+  - tensorly
+  - ipython
+  - jupyter
+  - pip:
+      - gemelli
