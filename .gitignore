@@ -5,6 +5,13 @@
 bioinformatics/**/data/
 bioinformatics/**/*.html
 
+# Drafts
+*draft*
+
+# Temporary files
+*tmp*
+
+
 # History files
 .Rhistory
 .Rapp.history
