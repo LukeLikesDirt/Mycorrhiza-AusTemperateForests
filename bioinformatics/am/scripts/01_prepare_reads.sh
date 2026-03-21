@@ -1,29 +1,11 @@
 #!/bin/bash
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=64
+#SBATCH --cpus-per-task=48
 #SBATCH --mem-per-cpu=4G
 #SBATCH --time=7-00:00:00
 #SBATCH --partition=week
 #SBATCH --output=logs/%x.%j.out
-
-# Script:   Prepare reads: rename, trim primers, quality check, filter and 
-#           denoise with DADA2, chimera removal with VSEARCH
-# Author:   Luke Florence
-# Date:     19th March 2026
-#
-# Notes:
-# –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
-# - Run this script from the './bioinformatics/am/' directory
-#
-# - DADA2 has pool=TRUE and MIN_ABUNDANCE=1 to maximise rare ASV recovery, given
-#   the typical low recovery of Glomeromycota in soil samples; this increases
-#   computational time from <1 day to ~1 week for 64 threads
-# –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
-
-# ––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
-# Parameters and file paths
-# ––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 
 # Define directories
 export INPUT="./data/raw_data"
@@ -37,7 +19,7 @@ mkdir -p "$PRIMERS_TRIMMED_DIR"
 mkdir -p "$CHIMERA_FILTERED_DIR"
 
 # Define constants
-export readonly NUM_THREADS=64                                       # Number of threads to use
+export readonly NUM_THREADS=48                                       # Number of threads to use
 export readonly PRIMER_FWD="CAGCCGCGGTAATTCCAGCT"                    # Cutadapt: Forward primer WANDA 5'
 export readonly PRIMER_REV="GAACCCAAACACTTTGGTTTCC"                  # Cutadapt: Reverse primer AML2 5' (use reverse compliments for merged reads/linked adapters AML2 3'- GGAAACCAAAGTGTTTGGGTTC -5')
 export readonly MIN_OVERLAP_FWD=18                                   # Cutadapt: Overlap for the forward primer
@@ -46,14 +28,14 @@ export readonly MAX_ERROR_RATE=1                                     # Cutadapt 
 export readonly MAX_N=0                                              # DADA2: Maximum number of ambiguous bases (N) allowed
 export readonly IDENTITY=0.995                                       # VSEARCH: Minimum identity for preclustering during chimera removal
 export readonly MAP_SCRIPT="./utils/map.pl"                          # Read mapping script (see the following link for an example pipeline that does not require a mapping file: https://github.com/torognes/vsearch/wiki/Alternative-VSEARCH-pipeline)
-export readonly REF_SEQS="./data/ref_seqs/reukaryome_V4.fasta"       # Reference sequences for chimera removal
+export readonly REF_SEQS="./data/ref_seqs/eukaryome_V4.fasta"        # Reference sequences for chimera removal
 export readonly MIN_LENGTH=450                                       # Minimum sequence length
 export readonly MAX_LENGTH=550                                       # Maximum sequence length
 
 
 # ––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 # FUNCTION: Rename fastq files
-# ––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+# –—————————————————————————————————————————————————————————————————————————————
 
 # Rename the forward and reverse read files to have sample names as prefixes
 # and read directions as suffixes (_R1 and _R2).
@@ -89,7 +71,7 @@ rename_fastq_files() {
 
 # ––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 # FUNCTION: Primer trimming with Cutadapt
-# ––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+# –—————————————————————————————————————————————————————————————————————————————
 trim_primers() {
     mkdir -p "$PRIMERS_TRIMMED_DIR" "$OUTPUT"
     
@@ -124,7 +106,7 @@ trim_primers() {
 
 # ––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 # FUNCTION: Quality reporting with FastQC and MultiQC
-# ––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+# –—————————————————————————————————————————————————————————————————————————————
 
 quality_reporting() {
     # Quality check with FastQC
@@ -143,7 +125,7 @@ quality_reporting() {
 
 # ––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 # FUNCTION: Quality filtering and denoising with DADA2
-# ––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+# –—————————————————————————————————————————————————————————————————————————————
 
 dada2_processing() {
 
@@ -260,7 +242,7 @@ EOF
 
 # ––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 # FUNCTION: Chimera removal with VSEARCH
-# ––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+# –———————————————————————————————————————————————————————————————————————————————————— 
 chimera_filter() {
     # Remove downstream files if they exist
     local files_to_remove=("all.denovo.nonchimeras.fasta" "all.derep.fasta" "all.derep.uc" "all.nonchimeras.derep.fasta" "all.nonchimeras.fasta" "all.preclustered.fasta" "all.preclustered.uc" "all.ref.nonchimeras.fasta")
