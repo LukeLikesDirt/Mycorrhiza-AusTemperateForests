@@ -1,0 +1,20 @@
+# Example Soil Chemistry Data
+# This is a template showing the expected format for soil chemistry data
+# Replace these example values with your actual field measurements
+
+site_id,N_total,P_total,N_available,P_available,pH,C_total,moisture
+site_01,0.45,0.08,12.5,8.2,5.8,4.2,25.3
+site_02,0.62,0.12,18.7,15.4,6.1,5.8,28.7
+site_03,0.38,0.06,10.2,5.8,5.5,3.6,22.1
+site_04,0.55,0.10,15.3,11.2,6.0,5.1,26.5
+site_05,0.71,0.15,22.4,18.6,6.3,6.5,31.2
+
+# Column descriptions:
+# site_id: Unique identifier for each sampling site
+# N_total: Total nitrogen (%) 
+# P_total: Total phosphorus (%)
+# N_available: Available nitrogen (mg/kg soil)
+# P_available: Available phosphorus (mg/kg soil)
+# pH: Soil pH (measured in water or CaCl2)
+# C_total: Total carbon (%)
+# moisture: Gravimetric moisture content (%)

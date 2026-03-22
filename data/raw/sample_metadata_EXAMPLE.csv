@@ -1,0 +1,19 @@
+# Example Sample Metadata
+# This is a template showing the expected format for sample metadata
+# Replace these example values with your actual field data
+
+sample_id,site_id,date_collected,latitude,longitude,forest_type,elevation
+sample_01,site_01,2024-03-15,-37.8136,145.2869,Eucalyptus,250
+sample_02,site_01,2024-03-15,-37.8138,145.2872,Eucalyptus,250
+sample_03,site_02,2024-03-16,-37.9245,145.3421,Mixed,420
+sample_04,site_02,2024-03-16,-37.9248,145.3425,Mixed,420
+sample_05,site_03,2024-03-17,-38.1523,145.8764,Nothofagus,680
+
+# Column descriptions:
+# sample_id: Unique identifier for each sample (should match column names in OTU table)
+# site_id: Site identifier (links to soil_chemistry.csv)
+# date_collected: Date of sample collection (YYYY-MM-DD format)
+# latitude: Latitude in decimal degrees (negative for South)
+# longitude: Longitude in decimal degrees
+# forest_type: Type of forest (e.g., Eucalyptus, Nothofagus, Mixed)
+# elevation: Elevation above sea level (meters)
