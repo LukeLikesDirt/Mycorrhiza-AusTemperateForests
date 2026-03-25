@@ -6,7 +6,7 @@
 # De novo clustering uses vsearch --allpairs_global to compute all pairwise
 # similarities, then finds connected components of the threshold graph via
 # union-find. This produces exact single-linkage clusters: sequences A and B
-# are in the same cluster iff there is a chain A → x₁ → ... → B where every
+# are in the same cluster if there is a chain A → x₁ → ... → B where every
 # consecutive pair has global similarity ≥ the cutoff. The connected components
 # of the threshold graph have this property by definition.
 #
@@ -48,8 +48,17 @@ option_list <- list(
               metavar = "FILE",
               help = "Glomeromycota clusters file produced by 02_classify_asvs.sh [default: %default]"),
   make_option("--threads",
-              type = "integer", default = 10L, metavar = "INT",
-              help = "Number of threads for vsearch [default: %default]")
+              type = "integer", default = 1L, metavar = "INT",
+              help = "Number of threads for vsearch [default: %default]"),
+  make_option("--maxaccepts",
+              type = "integer", default = 0L, metavar = "INT",
+              help = "vsearch --maxaccepts for reference-based clustering searches [default: %default]"),
+  make_option("--maxrejects",
+              type = "integer", default = 0L, metavar = "INT",
+              help = "vsearch --maxrejects for reference-based clustering searches [default: %default]"),
+  make_option("--strand",
+              type = "character", default = "plus", metavar = "STR",
+              help = "vsearch strand option: 'plus' or 'both' [default: %default]")
 )
 
 opt <- parse_args(
@@ -84,6 +93,11 @@ asv_classification_file     <- opt$asv_classification
 ref_seq_classification_file <- opt$ref_classification
 taxa_cutoffs_file           <- opt$glom_clusters
 threads                     <- opt$threads
+maxaccepts                  <- opt$maxaccepts
+maxrejects                  <- opt$maxrejects
+strand                      <- opt$strand
+
+if (!strand %in% c("plus", "both")) stop("--strand must be 'plus' or 'both'.")
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 
@@ -137,8 +151,10 @@ denovo_cluster <- function(seq_ids, cutoff, label, rank, asv_sequences, threads)
                       stringsAsFactors = FALSE))
   }
 
-  # Write unidentified sequences
-  sub_seqs <- asv_sequences[names(asv_sequences) %in% seq_ids]
+  # Write unclassified sequences — strip ;size=N so vsearch output IDs are clean
+  sub_seqs       <- asv_sequences[names(asv_sequences) %in% seq_ids]
+  clean_ids      <- str_replace(names(sub_seqs), ";size=\\d+$", "")
+  names(sub_seqs) <- clean_ids
   writeXStringSet(sub_seqs, "./tmp/denovo_seqs.fasta")
 
   # Compute all pairwise global similarities
@@ -147,12 +163,13 @@ denovo_cluster <- function(seq_ids, cutoff, label, rank, asv_sequences, threads)
     "--allpairs_global", "./tmp/denovo_seqs.fasta",
     "--acceptall",
     "--userout",   out_file,
-    "--userfields", "query+target+id",
+    "--userfields", "query+target+id+qcov+tcov",
     "--threads",   as.character(threads)
   ), stdout = FALSE, stderr = FALSE)
 
   # ── Union-Find with path halving and union by rank ─────────────────────────
-  id_to_int <- setNames(seq_len(n), seq_ids)
+  # Use clean_ids (without ;size=N) to match vsearch output IDs
+  id_to_int <- setNames(seq_len(n), clean_ids)
   parent    <- seq_len(n)
   uf_rank   <- integer(n)
 
@@ -175,10 +192,14 @@ denovo_cluster <- function(seq_ids, cutoff, label, rank, asv_sequences, threads)
   # Add edges for all pairs meeting the cutoff
   pair_size <- file.info(out_file)$size
   if (!is.na(pair_size) && pair_size > 0L) {
-    pairs <- fread(out_file, col.names = c("i", "j", "pident")) %>%
+    pairs <- fread(out_file, col.names = c("i", "j", "pident", "qcov", "tcov")) %>%
       filter(i != j) %>%
-      mutate(score = round(pident / 100 / 0.005) * 0.005) %>%
-      filter(score >= cutoff)
+      mutate(pident = suppressWarnings(as.numeric(pident)),
+             qcov   = suppressWarnings(as.numeric(qcov)),
+             tcov   = suppressWarnings(as.numeric(tcov))) %>%
+      filter(!is.na(pident)) %>%
+      mutate(score = pident / 100) %>%
+      filter(score >= cutoff, qcov >= 90, tcov >= 90)
 
     for (k in seq_len(nrow(pairs))) {
       ai <- id_to_int[pairs$i[k]]
@@ -188,12 +209,18 @@ denovo_cluster <- function(seq_ids, cutoff, label, rank, asv_sequences, threads)
   }
 
   # Build cluster assignments — number components in order of first appearance
+  # component[i] is the root for clean_ids[i] (sub_seqs order, NOT seq_ids order)
   component  <- vapply(seq_len(n), uf_find, integer(1L))
   comp_order <- match(component, unique(component))
 
+  # Resolve back to seq_ids order via a named lookup (sub_seqs ≠ seq_ids order)
+  id_to_cluster <- setNames(comp_order, clean_ids)
+  clean_seq_ids <- str_replace(seq_ids, ";size=\\d+$", "")
+
   data.frame(
     otu_id      = seq_ids,
-    pseudo_name = paste0(label, "_pseudo_", rank, "_", sprintf("%04d", comp_order)),
+    pseudo_name = paste0(label, "_pseudo_", rank, "_",
+                         sprintf("%04d", id_to_cluster[clean_seq_ids])),
     stringsAsFactors = FALSE
   )
 }
@@ -201,10 +228,10 @@ denovo_cluster <- function(seq_ids, cutoff, label, rank, asv_sequences, threads)
 # ── Reference-based + de novo clustering ─────────────────────────────────────
 #
 # For each unique supertaxon:
-#   1. Iteratively cluster unidentified ASVs against identified references
+#   1. Iteratively cluster unclassified ASVs against identified references
 #      using vsearch --usearch_global until no new assignments are made.
 #   2. Apply de novo clustering (vsearch --allpairs_global + union-find) to
-#      any ASVs that remain unidentified after the reference step.
+#      any ASVs that remain unclassified after the reference step.
 
 cluster_with_denovo <- function(this_superrank, this_rank, this_subrank,
                                 taxa_cutoffs, asv_sequences, threads) {
@@ -214,7 +241,7 @@ cluster_with_denovo <- function(this_superrank, this_rank, this_subrank,
   # Get unique supertaxa and their cutoffs
   supertaxa_cutoffs <- taxa_cutoffs %>%
     select(!!sym(this_superrank), paste0(this_rank, "_cutoff")) %>%
-    filter(!get(this_superrank) %in% c("unidentified", "")) %>%
+    filter(!get(this_superrank) %in% c("unclassified", "")) %>%
     unique()
 
   # Check for NA cutoffs
@@ -239,7 +266,7 @@ cluster_with_denovo <- function(this_superrank, this_rank, this_subrank,
       # Find identified ASVs at this rank (used as references)
       identified_asvs <- taxa_cutoffs %>%
         filter(!!sym(this_superrank) == this_supertaxon,
-               !!sym(this_rank) != "unidentified", !!sym(this_rank) != "") %>%
+               !!sym(this_rank) != "unclassified", !!sym(this_rank) != "") %>%
         pull(otu_id)
 
       if (length(identified_asvs) == 0) {
@@ -247,42 +274,42 @@ cluster_with_denovo <- function(this_superrank, this_rank, this_subrank,
         break
       }
 
-      # Find unidentified ASVs at this rank
-      unidentified_asvs <- taxa_cutoffs %>%
+      # Find unclassified ASVs at this rank
+      unclassified_asvs <- taxa_cutoffs %>%
         filter(!!sym(this_superrank) == this_supertaxon,
-               !!sym(this_rank) == "unidentified" | !!sym(this_rank) == "") %>%
+               !!sym(this_rank) == "unclassified" | !!sym(this_rank) == "") %>%
         pull(otu_id)
 
-      initial_unidentified_count <- length(unidentified_asvs)
-      if (initial_unidentified_count == 0) {
-        message("No unidentified ASVs remaining for ", this_supertaxon)
+      initial_unclassified_count <- length(unclassified_asvs)
+      if (initial_unclassified_count == 0) {
+        message("No unclassified ASVs remaining for ", this_supertaxon)
         break
       }
 
       # Write sequences to temp files
       identified_sequences   <- asv_sequences[names(asv_sequences) %in% identified_asvs]
-      unidentified_sequences <- asv_sequences[names(asv_sequences) %in% unidentified_asvs]
+      unclassified_sequences <- asv_sequences[names(asv_sequences) %in% unclassified_asvs]
       writeXStringSet(identified_sequences,   "./tmp/identified_fasta")
-      writeXStringSet(unidentified_sequences, "./tmp/unidentified_fasta")
+      writeXStringSet(unclassified_sequences, "./tmp/unclassified_fasta")
 
-      message("Clustering ", initial_unidentified_count, " unidentified ASVs to ",
+      message("Clustering ", initial_unclassified_count, " unclassified ASVs to ",
               this_supertaxon, " at ", this_cutoff * 100, "% similarity...")
 
       # Run vsearch --usearch_global
       system2("vsearch", args = c(
-        "--usearch_global", "./tmp/unidentified_fasta",
+        "--usearch_global", "./tmp/unclassified_fasta",
         "--db",             "./tmp/identified_fasta",
-        "--id",             "0.5",
-        "--strand",         "both",
-        "--maxaccepts",     "1",
-        "--maxrejects",     "0",
-        "--userout",        "./tmp/unidentified_vsearch.out",
-        "--userfields",     "query+target+id",
+        "--id",             as.character(this_cutoff),
+        "--strand",         strand,
+        "--maxaccepts",     as.character(maxaccepts),
+        "--maxrejects",     as.character(maxrejects),
+        "--userout",        "./tmp/unclassified_vsearch.out",
+        "--userfields",     "query+target+id+qcov+tcov",
         "--threads",        as.character(threads)
       ), stdout = FALSE, stderr = FALSE)
 
       # Check if vsearch output is empty
-      vsearch_size <- file.info("./tmp/unidentified_vsearch.out")$size
+      vsearch_size <- file.info("./tmp/unclassified_vsearch.out")$size
       if (is.na(vsearch_size) || vsearch_size == 0) {
         message("No vsearch hits found for ", this_supertaxon, " - stopping reference clustering")
         break
@@ -292,16 +319,20 @@ cluster_with_denovo <- function(this_superrank, this_rank, this_subrank,
       rank_hierarchy <- c("kingdom", "phylum", "class", "order", "family", "genus", "species")
       rank_index     <- which(rank_hierarchy == this_rank)
 
-      new_clusters <- fread("./tmp/unidentified_vsearch.out",
-                            col.names = c("otu_id", "reference_id", "pident")) %>%
+      new_clusters <- fread("./tmp/unclassified_vsearch.out",
+                            col.names = c("otu_id", "reference_id", "pident", "qcov", "tcov")) %>%
+        mutate(pident = suppressWarnings(as.numeric(pident)),
+               qcov   = suppressWarnings(as.numeric(qcov)),
+               tcov   = suppressWarnings(as.numeric(tcov))) %>%
+        filter(!is.na(pident)) %>%
         group_by(otu_id) %>%
         slice(1) %>%
         ungroup() %>%
         mutate(
-          score     = round(pident / 100 / 0.005) * 0.005,
+          score     = pident / 100,
           abundance = as.integer(str_extract(otu_id, "(?<=;size=)\\d+"))
         ) %>%
-        filter(score >= this_cutoff)
+        filter(score >= this_cutoff, qcov >= 90, tcov >= 90)
 
       if (nrow(new_clusters) == 0) {
         message("No sequences passed similarity filter for ", this_supertaxon)
@@ -317,11 +348,11 @@ cluster_with_denovo <- function(this_superrank, this_rank, this_subrank,
         ) %>%
         mutate(rank = this_rank, cutoff = this_cutoff)
 
-      # Set lower ranks to unidentified
+      # Set lower ranks to unclassified
       if (rank_index < length(rank_hierarchy)) {
         lower_ranks <- rank_hierarchy[(rank_index + 1):length(rank_hierarchy)]
         for (lower_rank in lower_ranks) {
-          new_clusters <- new_clusters %>% mutate(!!lower_rank := "unidentified")
+          new_clusters <- new_clusters %>% mutate(!!lower_rank := "unclassified")
         }
       }
 
@@ -336,18 +367,18 @@ cluster_with_denovo <- function(this_superrank, this_rank, this_subrank,
 
       fwrite(taxa_cutoffs, paste0("./tmp_clusters/", this_rank, "_clusters.txt"), sep = "\t")
 
-      remaining_unidentified_count <- taxa_cutoffs %>%
+      remaining_unclassified_count <- taxa_cutoffs %>%
         filter(!!sym(this_superrank) == this_supertaxon,
-               !!sym(this_rank) == "unidentified" | !!sym(this_rank) == "") %>%
+               !!sym(this_rank) == "unclassified" | !!sym(this_rank) == "") %>%
         nrow()
 
-      message("Assigned ", initial_unidentified_count - remaining_unidentified_count,
-              " ASVs. ", remaining_unidentified_count, " remain unidentified.")
+      message("Assigned ", initial_unclassified_count - remaining_unclassified_count,
+              " ASVs. ", remaining_unclassified_count, " remain unclassified.")
 
-      if (remaining_unidentified_count == 0) {
-        message("No more unidentified ASVs for ", this_supertaxon)
+      if (remaining_unclassified_count == 0) {
+        message("No more unclassified ASVs for ", this_supertaxon)
         break
-      } else if (remaining_unidentified_count == initial_unidentified_count) {
+      } else if (remaining_unclassified_count == initial_unclassified_count) {
         message("No new assignments for ", this_supertaxon, " - stopping reference clustering")
         break
       } else {
@@ -356,19 +387,19 @@ cluster_with_denovo <- function(this_superrank, this_rank, this_subrank,
     }
 
     ### De novo clustering (exact single-linkage via union-find) ###
-    remaining_unidentified_asvs <- taxa_cutoffs %>%
+    remaining_unclassified_asvs <- taxa_cutoffs %>%
       filter(!!sym(this_superrank) == this_supertaxon,
-             !!sym(this_rank) == "unidentified" | !!sym(this_rank) == "") %>%
+             !!sym(this_rank) == "unclassified" | !!sym(this_rank) == "") %>%
       pull(otu_id)
 
-    if (length(remaining_unidentified_asvs) == 0) {
+    if (length(remaining_unclassified_asvs) == 0) {
       message(paste0("No remaining ASVs for de novo clustering of ", this_supertaxon))
     } else {
-      message(paste0("Commencing de novo clustering of ", length(remaining_unidentified_asvs),
-                     " unidentified ASVs in ", this_supertaxon, "..."))
+      message(paste0("Commencing de novo clustering of ", length(remaining_unclassified_asvs),
+                     " unclassified ASVs in ", this_supertaxon, "..."))
 
       cluster_map <- denovo_cluster(
-        seq_ids       = remaining_unidentified_asvs,
+        seq_ids       = remaining_unclassified_asvs,
         cutoff        = this_cutoff,
         label         = this_supertaxon,
         rank          = this_rank,
@@ -378,7 +409,8 @@ cluster_with_denovo <- function(this_superrank, this_rank, this_subrank,
 
       taxa_cutoffs <- cluster_map %>%
         left_join(taxa_cutoffs, by = "otu_id") %>%
-        mutate(!!sym(this_rank) := pseudo_name) %>%
+        mutate(!!sym(this_rank) := pseudo_name,
+               cutoff            = this_cutoff) %>%
         select(-pseudo_name) %>%
         bind_rows(taxa_cutoffs %>% filter(!otu_id %in% cluster_map$otu_id))
 
@@ -390,8 +422,8 @@ cluster_with_denovo <- function(this_superrank, this_rank, this_subrank,
   }
 
   message(paste0("Clustering for ", this_rank, " complete!!!"))
-  unlink(c("./tmp/identified_fasta", "./tmp/unidentified_fasta",
-           "./tmp/unidentified_vsearch.out",
+  unlink(c("./tmp/identified_fasta", "./tmp/unclassified_fasta",
+           "./tmp/unclassified_vsearch.out",
            "./tmp/denovo_seqs.fasta", "./tmp/denovo_pairs.txt"))
   return(taxa_cutoffs)
 }
@@ -411,6 +443,9 @@ taxa_cutoffs <- fread(taxa_cutoffs_file)
 
 # Clustering hierarchy for Glomeromycota
 clustering_hierarchy <- list(
+  list(superrank = "phylum", rank = "family",   subrank = "genus"),
+  list(superrank = "class", rank = "family",   subrank = "genus"),
+  list(superrank = "order", rank = "family",   subrank = "genus"),
   list(superrank = "family", rank = "genus",   subrank = "species"),
   list(superrank = "genus",  rank = "species",  subrank = NULL)
 )
@@ -447,7 +482,7 @@ for (i in seq_along(clustering_hierarchy)) {
 # ── Final OTU clusters ────────────────────────────────────────────────────────
 
 pre_clustered_otus <- fread("./tmp_clusters/species_clusters.txt") %>%
-  filter(family != "unidentified" & family != "") %>%
+  filter(family != "unclassified" & family != "") %>%
   select(
     otu_id, reference_id, kingdom, phylum, class, order, family, genus, species,
     rank, cutoff, score, asv_abundance = abundance
@@ -459,12 +494,12 @@ pre_clustered_otus <- pre_clustered_otus %>%
   mutate(
     phylum = case_when(
       str_detect(phylum, "_pseudo_") ~ paste0(
-        str_extract(phylum, "^[^_]+"), "_pseudo_phylum_", sprintf("%04d", cur_group_id())),
-      str_detect(phylum, "unidentified") ~ paste0(
-        str_extract(kingdom, "^[^_]+"), "_pseudo_phylum_", sprintf("%04d", cur_group_id())),
+        str_extract(phylum, "^[^_]+"), "_pseudo_phy_", sprintf("%04d", cur_group_id())),
+      str_detect(phylum, "unclassified") ~ paste0(
+        str_extract(kingdom, "^[^_]+"), "_pseudo_phy_", sprintf("%04d", cur_group_id())),
       (str_detect(phylum, "Incerate") & str_detect(genus, "_pseudo_")) |
-        (str_detect(phylum, "Incerate") & str_detect(phylum, "unidentified")) ~ paste0(
-          str_extract(kingdom, "^[^_]+"), "_pseudo_phylum_", sprintf("%04d", cur_group_id())),
+        (str_detect(phylum, "Incerate") & str_detect(phylum, "unclassified")) ~ paste0(
+          str_extract(kingdom, "^[^_]+"), "_pseudo_phy_", sprintf("%04d", cur_group_id())),
       TRUE ~ phylum
     )
   ) %>%
@@ -473,12 +508,12 @@ pre_clustered_otus <- pre_clustered_otus %>%
   mutate(
     class = case_when(
       str_detect(class, "_pseudo_") ~ paste0(
-        str_extract(class, "^[^_]+"), "_pseudo_class_", sprintf("%04d", cur_group_id())),
-      str_detect(class, "unidentified") ~ paste0(
-        str_extract(phylum, "^[^_]+"), "_pseudo_class_", sprintf("%04d", cur_group_id())),
+        str_extract(class, "^[^_]+"), "_pseudo_cls_", sprintf("%04d", cur_group_id())),
+      str_detect(class, "unclassified") ~ paste0(
+        str_extract(phylum, "^[^_]+"), "_pseudo_cls_", sprintf("%04d", cur_group_id())),
       (str_detect(class, "Incerate") & str_detect(genus, "_pseudo_")) |
-        (str_detect(class, "Incerate") & str_detect(class, "unidentified")) ~ paste0(
-          str_extract(phylum, "^[^_]+"), "_pseudo_class_", sprintf("%04d", cur_group_id())),
+        (str_detect(class, "Incerate") & str_detect(class, "unclassified")) ~ paste0(
+          str_extract(phylum, "^[^_]+"), "_pseudo_cls_", sprintf("%04d", cur_group_id())),
       TRUE ~ class
     )
   ) %>%
@@ -487,12 +522,12 @@ pre_clustered_otus <- pre_clustered_otus %>%
   mutate(
     order = case_when(
       str_detect(order, "_pseudo_") ~ paste0(
-        str_extract(order, "^[^_]+"), "_pseudo_order_", sprintf("%04d", cur_group_id())),
-      str_detect(order, "unidentified") ~ paste0(
-        str_extract(class, "^[^_]+"), "_pseudo_order_", sprintf("%04d", cur_group_id())),
+        str_extract(order, "^[^_]+"), "_pseudo_ord_", sprintf("%04d", cur_group_id())),
+      str_detect(order, "unclassified") ~ paste0(
+        str_extract(class, "^[^_]+"), "_pseudo_ord_", sprintf("%04d", cur_group_id())),
       (str_detect(order, "Incerate") & str_detect(genus, "_pseudo_")) |
-        (str_detect(order, "Incerate") & str_detect(order, "unidentified")) ~ paste0(
-          str_extract(class, "^[^_]+"), "_pseudo_order_", sprintf("%04d", cur_group_id())),
+        (str_detect(order, "Incerate") & str_detect(order, "unclassified")) ~ paste0(
+          str_extract(class, "^[^_]+"), "_pseudo_ord_", sprintf("%04d", cur_group_id())),
       TRUE ~ order
     )
   ) %>%
@@ -501,12 +536,12 @@ pre_clustered_otus <- pre_clustered_otus %>%
   mutate(
     family = case_when(
       str_detect(family, "_pseudo_") ~ paste0(
-        str_extract(family, "^[^_]+"), "_pseudo_family_", sprintf("%04d", cur_group_id())),
-      str_detect(family, "unidentified") ~ paste0(
-        str_extract(order, "^[^_]+"), "_pseudo_family_", sprintf("%04d", cur_group_id())),
+        str_extract(family, "^[^_]+"), "_pseudo_fam_", sprintf("%04d", cur_group_id())),
+      str_detect(family, "unclassified") ~ paste0(
+        str_extract(order, "^[^_]+"), "_pseudo_fam_", sprintf("%04d", cur_group_id())),
       (str_detect(family, "Incerate") & str_detect(genus, "_pseudo_")) |
-        (str_detect(family, "Incerate") & str_detect(family, "unidentified")) ~ paste0(
-          str_extract(order, "^[^_]+"), "_pseudo_family_", sprintf("%04d", cur_group_id())),
+        (str_detect(family, "Incerate") & str_detect(family, "unclassified")) ~ paste0(
+          str_extract(order, "^[^_]+"), "_pseudo_fam_", sprintf("%04d", cur_group_id())),
       TRUE ~ family
     )
   ) %>%
@@ -515,12 +550,12 @@ pre_clustered_otus <- pre_clustered_otus %>%
   mutate(
     genus = case_when(
       str_detect(genus, "_pseudo_") ~ paste0(
-        str_extract(genus, "^[^_]+"), "_pseudo_genus_", sprintf("%04d", cur_group_id())),
-      str_detect(genus, "unidentified") ~ paste0(
-        str_extract(family, "^[^_]+"), "_pseudo_genus_", sprintf("%04d", cur_group_id())),
+        str_extract(genus, "^[^_]+"), "_pseudo_gen_", sprintf("%04d", cur_group_id())),
+      str_detect(genus, "unclassified") ~ paste0(
+        str_extract(family, "^[^_]+"), "_pseudo_gen_", sprintf("%04d", cur_group_id())),
       (str_detect(genus, "Incerate") & str_detect(genus, "_pseudo_")) |
-        (str_detect(genus, "Incerate") & str_detect(genus, "unidentified")) ~ paste0(
-          str_extract(family, "^[^_]+"), "_pseudo_genus_", sprintf("%04d", cur_group_id())),
+        (str_detect(genus, "Incerate") & str_detect(genus, "unclassified")) ~ paste0(
+          str_extract(family, "^[^_]+"), "_pseudo_gen_", sprintf("%04d", cur_group_id())),
       TRUE ~ genus
     )
   ) %>%
@@ -529,12 +564,12 @@ pre_clustered_otus <- pre_clustered_otus %>%
   mutate(
     species = case_when(
       str_detect(species, "_pseudo_") ~ paste0(
-        str_extract(species, "^[^_]+"), "_pseudo_species_", sprintf("%04d", cur_group_id())),
-      str_detect(species, "unidentified") ~ paste0(
-        str_extract(genus, "^[^_]+"), "_pseudo_species_", sprintf("%04d", cur_group_id())),
+        str_extract(species, "^[^_]+"), "_pseudo_sp_", sprintf("%04d", cur_group_id())),
+      str_detect(species, "unclassified") ~ paste0(
+        str_extract(genus, "^[^_]+"), "_pseudo_sp_", sprintf("%04d", cur_group_id())),
       (str_detect(species, "Incerate") & str_detect(species, "_pseudo_")) |
-        (str_detect(species, "Incerate") & str_detect(species, "unidentified")) ~ paste0(
-          str_extract(genus, "^[^_]+"), "_pseudo_species_", sprintf("%04d", cur_group_id())),
+        (str_detect(species, "Incerate") & str_detect(species, "unclassified")) ~ paste0(
+          str_extract(genus, "^[^_]+"), "_pseudo_sp_", sprintf("%04d", cur_group_id())),
       TRUE ~ species
     )
   ) %>%
@@ -571,7 +606,7 @@ pre_clustered_otus <- pre_clustered_otus %>%
 # ── Format and save OTU classification ───────────────────────────────────────
 
 otu_classification <- pre_clustered_otus %>%
-  filter(rank %in% c("family", "genus", "species")) %>%
+  filter(rank %in% c("phylum", "class", "order", "family", "genus", "species")) %>%
   group_by(otu_id) %>%
   slice(1) %>%
   ungroup() %>%
@@ -604,24 +639,40 @@ otu_classification %>%
          is.na(species) | species == "")
 
 # ── Renumber pseudo taxa sequentially within each rank by abundance ───────────
+# Abbreviated suffixes must match those used in the pre_clustered_otus renaming
+# step above (e.g. "_pseudo_gen_" not "_pseudo_genus_").
+
+rank_abbrevs <- c(
+  "class"   = "cls",
+  "order"   = "ord",
+  "family"  = "fam",
+  "genus"   = "gen",
+  "species" = "sp"
+)
 
 ranks_to_renumber <- c("class", "order", "family", "genus", "species")
 
 for (this_rank in ranks_to_renumber) {
-  pseudo_pattern <- paste0("_pseudo_", this_rank, "_")
+  abbrev        <- rank_abbrevs[[this_rank]]
+  pseudo_pattern <- paste0("_pseudo_", abbrev, "_")
   otu_classification <- otu_classification %>%
     mutate(
       is_pseudo    = str_detect(!!sym(this_rank), pseudo_pattern),
       pseudo_prefix = if_else(
         is_pseudo,
-        str_extract(!!sym(this_rank), paste0("^.+_pseudo_", this_rank, "_")),
+        str_extract(!!sym(this_rank), paste0("^.+_pseudo_", abbrev, "_")),
         NA_character_
       )
     ) %>%
     group_by(pseudo_prefix) %>%
     arrange(desc(abundance)) %>%
     mutate(
-      new_number = if_else(is_pseudo, row_number(), NA_integer_),
+      # match() assigns the same sequential number to all rows sharing the same
+      # rank value (e.g. all OTUs in the same genus cluster), ordered by first
+      # appearance after sorting by descending abundance.
+      new_number = if_else(is_pseudo,
+                           match(!!sym(this_rank), unique(!!sym(this_rank))),
+                           NA_integer_),
       !!sym(this_rank) := if_else(
         is_pseudo,
         paste0(pseudo_prefix, sprintf("%04d", new_number)),
@@ -640,7 +691,7 @@ otu_sample_matrix <- asv_sample_matrix %>%
   filter(abundance > 0) %>%
   inner_join(
     pre_clustered_otus %>%
-      filter(rank %in% c("family", "genus", "species")) %>%
+      filter(rank %in% c("phylum", "class", "order", "family", "genus", "species")) %>%
       mutate(
         asv_id = str_replace(asv_id, ";size=\\d+$", ""),
         otu_id = str_replace(otu_id, ";size=\\d+$", "")
@@ -690,7 +741,7 @@ message("All OTU IDs match between sample matrix and classification!")
 
 otu_representative_names <- unique(
   pre_clustered_otus %>%
-    filter(rank %in% c("family", "genus", "species")) %>%
+    filter(rank %in% c("phylum", "class", "order", "family", "genus", "species")) %>%
     pull(otu_id)
 )
 
@@ -724,20 +775,11 @@ writeXStringSet(otu_representative_sequences, "./tmp_clusters/otu_glom_sequences
 
 # ── Save final combined outputs ───────────────────────────────────────────────
 
-non_glomeromycota_clusters <- fread("./tmp_clusters/family_non_glomeromycota_clusters.txt") %>%
-  mutate(otu_id = str_replace(otu_id, ";size=\\d+$", ""))
+non_glomeromycota_clusters <- fread("./tmp_clusters/non_glomeromycota_clusters.txt") %>%
+  mutate(otu_id = str_replace(otu_id, ";size=\\d+$", "")) 
 
 non_glomeromycota_clusters %>%
-  bind_rows(
-    fread("./tmp_clusters/species_clusters.txt") %>%
-      filter(family == "unidentified" | family == "") %>%
-      mutate(otu_id = str_replace(otu_id, ";size=\\d+$", ""))
-  ) %>%
-  bind_rows(
-    fread("./tmp_clusters/family_unidentified_clusters.txt") %>%
-      mutate(otu_id = str_replace(otu_id, ";size=\\d+$", ""))
-  ) %>%
-  fwrite("../output/otu_classification_non_glom.txt", sep = "\t")
+  fwrite("./output/otu_classification_non_glom.txt", sep = "\t")
 
 # Family-level OTU tables
 non_glomeromycota_family_clusters <- asv_sample_matrix %>%
@@ -759,8 +801,8 @@ glomeromycota_family_clusters <- otu_sample_matrix %>%
 
 bind_rows(non_glomeromycota_family_clusters, glomeromycota_family_clusters) %>%
   pivot_wider(names_from = sample_id, values_from = abundance, values_fill = 0) %>%
-  fwrite("../output/otu_table_all_family.txt", sep = "\t")
+  fwrite("./output/otu_table_all_family.txt", sep = "\t")
 
 glomeromycota_family_clusters %>%
   pivot_wider(names_from = sample_id, values_from = abundance, values_fill = 0) %>%
-  fwrite("../output/otu_table_glom_family.txt", sep = "\t")
+  fwrite("./output/otu_table_glom_family.txt", sep = "\t")

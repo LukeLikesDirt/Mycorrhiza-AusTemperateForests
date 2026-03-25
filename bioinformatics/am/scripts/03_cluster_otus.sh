@@ -30,7 +30,7 @@
 readonly ASV_SEQUENCES="./data/asv_sequences.fasta"
 readonly ASV_TABLE="./data/asv_table.txt"
 readonly ASV_CLASSIFICATION="./data/asv_classification.txt"
-readonly REF_CLASSIFICATION="./data/ref_seqs/eukaryome_V4.classification"
+readonly REF_CLASSIFICATION="./data/ref_seqs/eukaryome_V4_all.classification"
 readonly GLOM_CLUSTERS="./tmp_clusters/glomeromycota_clusters.txt"
 
 # Utility script
@@ -38,6 +38,14 @@ readonly CLUSTER_OTUS="./utils/cluster_otus.R"
 
 # Number of threads
 readonly NUM_THREADS=10
+
+# vsearch clustering parameters
+readonly MAXACCEPTS=0
+readonly MAXREJECTS=0
+readonly STRAND="plus"   # "plus" or "both"
+
+# Create output directory if it doesn't exist
+mkdir -p "./output"
 
 # –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 # Main script
@@ -59,7 +67,10 @@ Rscript "$CLUSTER_OTUS" \
     --asv_classification  "$ASV_CLASSIFICATION" \
     --ref_classification  "$REF_CLASSIFICATION" \
     --glom_clusters       "$GLOM_CLUSTERS" \
-    --threads             "$NUM_THREADS"
+    --threads             "$NUM_THREADS" \
+    --maxaccepts          "$MAXACCEPTS" \
+    --maxrejects          "$MAXREJECTS" \
+    --strand              "$STRAND"
 
 conda deactivate
 
