@@ -800,9 +800,11 @@ glomeromycota_family_clusters <- otu_sample_matrix %>%
   arrange(desc(abundance))
 
 bind_rows(non_glomeromycota_family_clusters, glomeromycota_family_clusters) %>%
-  pivot_wider(names_from = sample_id, values_from = abundance, values_fill = 0) %>%
+  pivot_wider(names_from = sample_id, values_from = abundance, values_fill = 0,
+              values_fn = sum) %>%
   fwrite("./output/otu_table_all_family.txt", sep = "\t")
 
 glomeromycota_family_clusters %>%
-  pivot_wider(names_from = sample_id, values_from = abundance, values_fill = 0) %>%
+  pivot_wider(names_from = sample_id, values_from = abundance, values_fill = 0,
+              values_fn = sum) %>%
   fwrite("./output/otu_table_glom_family.txt", sep = "\t")
