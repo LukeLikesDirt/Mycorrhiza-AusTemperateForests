@@ -1,0 +1,263 @@
+# AM pipeline: organise bioinformatic outputs for downstream statistical analyses
+# Run from the am project root directory
+
+# 1. SETUP -----------------------------------------------------------------------
+
+require(data.table)
+require(SRS)
+require(hillR)
+require(ape)
+require(phangorn)
+require(DECIPHER)
+require(Biostrings)
+require(tidyverse)
+
+# Index-switching filter: zero out reads below threshold% of each OTU's library total
+filter_library <- function(otu_table, threshold = 0.1) {
+  otu_table %>%
+    pivot_longer(-otu_id, names_to = "sample", values_to = "reads") %>%
+    group_by(otu_id) %>%
+    mutate(reads = replace(reads, (reads / sum(reads)) * 100 <= threshold, 0)) %>%
+    ungroup() %>%
+    pivot_wider(names_from = "sample", values_from = "reads", values_fill = 0)
+}
+
+# Low abundance filter: zero out reads below threshold% of sample total OR below min_count
+filter_samples <- function(otu_tab, threshold = 0.01, min_count = 1) {
+  otu_tab %>%
+    pivot_longer(-otu_id, names_to = 'sample') %>%
+    filter(value > 0) %>%
+    group_by(sample) %>%
+    mutate(rel_abund = value / sum(value) * 100) %>%
+    ungroup() %>%
+    mutate(value = if_else(rel_abund <= threshold | value <= min_count, 0, value)) %>%
+    select(-rel_abund) %>%
+    filter(value > 0) %>%
+    pivot_wider(names_from = "sample", values_from = "value", values_fill = 0)
+}
+
+# Parse a gemelli ordination file; returns site coords with named PCoA columns
+parse_ordination <- function(path, pco1_prefix, pco2_prefix) {
+  lines      <- readLines(path)
+  prop_line  <- which(grepl("Proportion explained", lines))[1]
+  props      <- as.numeric(strsplit(lines[prop_line + 1], "\t")[[1]])
+  prop1      <- round(props[1] * 100, 0)
+  prop2      <- round(props[2] * 100, 0)
+  site_start <- which(grepl("^Site", lines))[1] + 1
+  site_end   <- length(lines)
+  for (i in site_start:length(lines)) {
+    if (lines[i] == "" || grepl("^Biplot|^Site constraints", lines[i])) {
+      site_end <- i - 1; break
+    }
+  }
+  lines[site_start:site_end] %>%
+    keep(~ nchar(.) > 0 && !grepl("^\t", .)) %>%
+    map_dfr(~ {
+      p <- strsplit(., "\t")[[1]]
+      if (length(p) >= 3) tibble(sample_id = p[1], PC1 = as.numeric(p[2]), PC2 = as.numeric(p[3]))
+    }) %>%
+    filter(!sample_id %in% c("Biplot", "Site constraints")) %>%
+    rename(!!paste0(pco1_prefix, "_", prop1) := PC1,
+           !!paste0(pco2_prefix, "_", prop2) := PC2)
+}
+
+# 2. DATA IMPORT -----------------------------------------------------------------
+
+otu_classification <- fread("./tmp_clusters/otu_glom_classification.txt")
+otu_seqs           <- readDNAStringSet("./tmp_clusters/otu_glom_sequences.fasta")
+otu_table_glom     <- fread("./tmp_clusters/otu_glom_table.txt")
+
+non_glom_ids <- fread("./tmp_clusters/non_glomeromycota_clusters.txt") %>%
+  mutate(otu_id = gsub(";size=.*", "", otu_id)) %>%
+  pull(otu_id)
+
+otu_table_all <- bind_rows(
+  otu_table_glom %>%
+    pivot_longer(-otu_id, names_to = "sample_id", values_to = "abundance"),
+  fread("./data/asv_table.txt") %>%
+    rename(otu_id = OTU_ID) %>%
+    filter(otu_id %in% non_glom_ids) %>%
+    pivot_longer(-otu_id, names_to = "sample_id", values_to = "abundance")
+) %>%
+  pivot_wider(names_from = sample_id, values_from = abundance, values_fill = 0)
+
+# 3. QUALITY CONTROL -------------------------------------------------------------
+
+otu_table_library_filtered <- filter_library(otu_table_all, threshold = 0.1) %>%
+  filter_samples(., threshold = 0.01, min_count = 1)
+
+message("---- Library-wide and sample-specific filter ----")
+message("Total reads before filtering: ", sum(otu_table_all[, -1]))
+message("Total reads after filtering:  ", sum(otu_table_library_filtered[, -1]))
+message("Percentage of reads removed:  ",
+        round(((sum(otu_table_all[, -1]) - sum(otu_table_library_filtered[, -1])) /
+                 sum(otu_table_all[, -1])) * 100, 3), "%")
+message("Total OTUs before filtering: ", nrow(otu_table_all))
+message("Total OTUs after filtering:  ", nrow(otu_table_library_filtered))
+message("Percentage of OTUs removed:  ",
+        round(((nrow(otu_table_all) - nrow(otu_table_library_filtered)) /
+                 nrow(otu_table_all)) * 100, 3), "%")
+
+sample_id_depth <- otu_table_library_filtered %>%
+  pivot_longer(-otu_id, names_to = "sample_id", values_to = "abundance") %>%
+  filter(abundance > 0) %>%
+  group_by(sample_id) %>%
+  summarise(n_seqs = sum(abundance), .groups = "drop") %>%
+  arrange(n_seqs) %>%
+  print()
+
+min_depth <- 2500
+
+low_abundance_sample_ids <- sample_id_depth %>%
+  filter(n_seqs < min_depth | grepl("moc|neg", sample_id)) %>%
+  pull(sample_id)
+
+# 4. PREPARE AM DATA -------------------------------------------------------------
+
+dir.create("./output", showWarnings = FALSE)
+
+am_sample_ids <- otu_table_glom %>%
+  select(-otu_id, -any_of(low_abundance_sample_ids)) %>%
+  names()
+
+am_otu_ids <- otu_table_library_filtered %>%
+  select(-any_of(low_abundance_sample_ids)) %>%
+  filter(otu_id %in% otu_table_glom$otu_id,
+         rowSums(select(., -otu_id)) > 0) %>%
+  pivot_longer(cols = -otu_id, names_to = "sample_id", values_to = "abundance") %>%
+  filter(abundance > 0) %>%
+  group_by(otu_id) %>%
+  summarise(abundance = sum(abundance), .groups = "drop")
+
+otu_classification %>%
+  select(-abundance) %>%
+  inner_join(am_otu_ids, by = "otu_id") %>%
+  arrange(desc(abundance)) %>%
+  fwrite("./output/classification.txt", sep = "\t")
+
+otu_seqs_am <- otu_seqs[names(otu_seqs) %in% am_otu_ids$otu_id]
+writeXStringSet(otu_seqs_am, "./output/sequences.fasta")
+
+# SRS normalisation on all OTUs (run before ordination to identify surviving samples)
+otus_srs <- SRS(
+  data     = otu_table_library_filtered %>%
+               select(-any_of(low_abundance_sample_ids)) %>%
+               column_to_rownames("otu_id"),
+  Cmin     = min_depth,
+  set_seed = TRUE,
+  seed     = 1986
+) %>%
+  as_tibble() %>%
+  bind_cols(tibble(otu_id = otu_table_library_filtered$otu_id), .) %>%
+  filter(rowSums(select(., -otu_id)) > 0)
+
+srs_sample_ids <- setdiff(names(otus_srs), "otu_id")
+
+# Raw AM OTU table filtered to SRS-surviving samples (ordination input)
+otu_table_am_raw <- otu_table_library_filtered %>%
+  filter(otu_id %in% am_otu_ids$otu_id) %>%
+  select(otu_id, any_of(srs_sample_ids)) %>%
+  filter(rowSums(select(., -otu_id)) > 0)
+
+fwrite(otu_table_am_raw, "./output/otu_table.txt", sep = "\t")
+
+# SRS AM OTU table
+otu_table_am_srs <- otus_srs %>%
+  filter(otu_id %in% am_otu_ids$otu_id) %>%
+  select(otu_id, any_of(srs_sample_ids)) %>%
+  filter(rowSums(select(., -otu_id)) > 0)
+
+fwrite(otu_table_am_srs, "./output/otu_table_srs.txt", sep = "\t")
+
+# 5. PHYLOGENETIC TREE -----------------------------------------------------------
+
+aligned_seqs <- readDNAStringSet("output/sequences.fasta") %>%
+  AlignSeqs(verbose = TRUE, processors = 10)
+
+rooted_tree <- as.phyDat(as.matrix(aligned_seqs), type = "DNA") %>%
+  dist.ml() %>%
+  NJ() %>%
+  midpoint()
+
+ape::write.tree(rooted_tree, file = "output/tree.newick")
+
+# 6. ORDINATION (Aitchison RPCA via gemelli) -------------------------------------
+
+system("mkdir -p data/distances")
+system('conda run -n gemelli_env biom convert -i output/otu_table.txt -o data/distances/otus.biom --table-type="OTU table" --to-json')
+
+system("conda run -n gemelli_env gemelli rpca --in-biom data/distances/otus.biom --output-dir data/distances/ --min-feature-frequency 1")
+system("mv data/distances/ordination.txt data/distances/ordination_identity.txt")
+system("mv data/distances/distance-matrix.tsv output/dist_identity.txt")
+
+system("conda run -n gemelli_env gemelli phylogenetic-rpca --in-biom data/distances/otus.biom --in-phylogeny output/tree.newick --output-dir data/distances/ --min-feature-frequency 1")
+system("mv data/distances/ordination.txt data/distances/ordination_phylogeny.txt")
+system("mv data/distances/distance-matrix.tsv output/dist_phylogeny.txt")
+
+ordination_results <-
+  parse_ordination("data/distances/ordination_identity.txt",  "pco1_tax", "pco2_tax") %>%
+  left_join(
+    parse_ordination("data/distances/ordination_phylogeny.txt", "pco1_phy", "pco2_phy"),
+    by = "sample_id"
+  )
+
+fwrite(ordination_results, "data/distances/ordination_combined.txt", sep = "\t")
+
+# 7. DIVERSITY METRICS -----------------------------------------------------------
+
+# Sample abundance and richness (SRS-normalised AM)
+am_alpha_diversity <- otu_table_am_srs %>%
+  pivot_longer(-otu_id, names_to = "sample_id", values_to = "abundance") %>%
+  filter(abundance > 0) %>%
+  group_by(sample_id) %>%
+  summarise(
+    abundance_srs = sum(abundance),
+    richness_srs  = n_distinct(otu_id),
+    .groups = "drop"
+  )
+
+# Hill taxonomic and phylogenetic diversity + evenness (SRS table)
+comm_matrix_srs_AM <- otu_table_am_srs %>% column_to_rownames("otu_id") %>% t()
+srs_am_tree        <- keep.tip(rooted_tree, tip = colnames(comm_matrix_srs_AM))
+
+hill_diversity <- list(
+  hill_taxa(comm_matrix_srs_AM, q = 0)                      %>% enframe("sample_id", "hill_tax_div_q0"),
+  hill_taxa(comm_matrix_srs_AM, q = 1)                      %>% enframe("sample_id", "hill_tax_div_q1"),
+  hill_taxa(comm_matrix_srs_AM, q = 2)                      %>% enframe("sample_id", "hill_tax_div_q2"),
+  hill_phylo(comm_matrix_srs_AM, tree = srs_am_tree, q = 0) %>% enframe("sample_id", "hill_phy_div_q0"),
+  hill_phylo(comm_matrix_srs_AM, tree = srs_am_tree, q = 1) %>% enframe("sample_id", "hill_phy_div_q1"),
+  hill_phylo(comm_matrix_srs_AM, tree = srs_am_tree, q = 2) %>% enframe("sample_id", "hill_phy_div_q2")
+) %>%
+  reduce(left_join, by = "sample_id") %>%
+  mutate(
+    hill_tax_even_q1 = hill_tax_div_q1 / hill_tax_div_q0,
+    hill_tax_even_q2 = hill_tax_div_q2 / hill_tax_div_q0,
+    hill_phy_even_q1 = hill_phy_div_q1 / hill_phy_div_q0,
+    hill_phy_even_q2 = hill_phy_div_q2 / hill_phy_div_q0
+  )
+
+# 8. FINAL OUTPUTS ---------------------------------------------------------------
+
+diversity_estimate <- am_alpha_diversity %>%
+  inner_join(sample_id_depth %>% select(sample_id, total_sample_abundance = n_seqs),
+             by = "sample_id") %>%
+  left_join(hill_diversity,     by = "sample_id") %>%
+  left_join(ordination_results, by = "sample_id") %>%
+  select(
+    sample_id, total_sample_abundance, abundance_srs, richness_srs,
+    hill_tax_div_q0, hill_tax_div_q1, hill_tax_div_q2,
+    hill_tax_even_q1, hill_tax_even_q2,
+    hill_phy_div_q0, hill_phy_div_q1, hill_phy_div_q2,
+    hill_phy_even_q1, hill_phy_even_q2,
+    starts_with("pco1_tax_"), starts_with("pco2_tax_"),
+    starts_with("pco1_phy_"), starts_with("pco2_phy_")
+  )
+
+fwrite(diversity_estimate, "./output/diversity_am.txt", sep = "\t")
+
+dir.create("../../data/am", showWarnings = FALSE)
+file.copy(from = list.files("./output/", full.names = TRUE),
+          to   = "../../data/am/",
+          recursive = TRUE)
+
+message("---- Pipeline complete ----")
