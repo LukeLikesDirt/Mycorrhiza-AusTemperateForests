@@ -6,30 +6,26 @@
 #SBATCH --partition=day
 #SBATCH --output=%x.%j.out
 
-# Set constants
-ENV_FILE="./sequence_prep.yml"
+ENV_FILE="gemelli_env.yml"
 
 ### Create the mamba environment ###############################################
 
-echo "Creating the conda environment..."
+echo "Creating conda environment..."
 
-if ! conda info --envs | grep -q 'sequence_prep'; then
+if ! conda info --envs | grep -q 'gemelli_env'; then
   echo "Creating conda environment at: $(date)"
   mamba env create -f $ENV_FILE
 else
-  echo "Environment already exists!"
+  echo "Environment already exists."
 fi
 
 echo "Finished creating conda environment at: $(date)"
 
-# List installed packages #######################################################
+### List installed packages #####################################################
 
-# Activate the environment
-source activate sequence_prep
+source activate gemelli_env
 
-# Print the versions of installed packages
 echo "Installed package versions:"
 conda list
 
-# Deactivate the environment
 conda deactivate
