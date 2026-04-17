@@ -45,4 +45,5 @@ rank-specific subsets of the EUKARYOME ITS reference database.
 ## Environments (`envs/`)
 
 `dyna_clust_env.yml` Main pipeline environment
+
 `gemelli_env.yml` Environment for ordination via [gemelli][https://github.com/biocore/gemelli]
