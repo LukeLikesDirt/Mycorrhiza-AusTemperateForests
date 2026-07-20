@@ -25,6 +25,9 @@
 #   the full-length reference sequences for classification to increase taxonomic
 #   resolution for non-Glomromycota ASVs.
 #
+# - AM fungi evaluated here span two lineages: phylum Glomeromycota, and order
+#   Densosporales (Mucoromycota, Endogonomycetes) — both are AM fungi.
+#
 # –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 
 # –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
@@ -51,6 +54,11 @@ readonly MIN_SIM_FAMILY_SEARCH=0.900
 # Minimum similarity for ASVs to be classified glomeromycota (analgous to family-level classification)
 readonly MIN_SIM_GLOM=0.950
 
+# Orders outside phylum Glomeromycota to include in the AM pool as AM fungi
+# (comma-separated). Densosporales (Mucoromycota) are AM fungi, so they are
+# carried through to the final AM outputs alongside Glomeromycota.
+readonly AM_ORDERS="Densosporales"
+
 # Input reference files
 readonly REFERENCE_SEQUENCES_ALL="./data/ref_seqs/eukaryome_V4_all.fasta"
 readonly CLASSIFICATION_FILE="./data/ref_seqs/eukaryome_V4_all.classification"
@@ -74,7 +82,7 @@ readonly REMAINING_AFTER_FAMILY="./tmp/remaining_after_family.fasta"
 
 # Utility scripts
 readonly SUBSET_IDENTIFIED="./utils/subset_identified.R"
-readonly CLASSIFY_ASVS="./utils/classify_glomeromycota.R"
+readonly CLASSIFY_ASVS="./utils/classify_am.R"
 
 # Input sequences
 readonly IN_SEQUENCES="./data/asv_sequences.fasta"
@@ -254,7 +262,7 @@ echo ""
 vsearch_all "$REMAINING_AFTER_FAMILY"
 filter_seqs "$VSEARCH_ALL_FILE" "" 80
 
-echo "=== CLASSIFY ASVs AND PREPARE GLOMEROMYCOTA / NON-GLOMEROMYCOTA POOLS ==="
+echo "=== CLASSIFY ASVs AND PREPARE AM (GLOMEROMYCOTA + ${AM_ORDERS}) / NON-AM POOLS ==="
 echo $(date)
 echo ""
 Rscript "$CLASSIFY_ASVS" \
@@ -266,7 +274,8 @@ Rscript "$CLASSIFY_ASVS" \
     --vsearch_all "$VSEARCH_ALL_FILE" \
     --input "$IN_SEQUENCES" \
     --output "$OUT_CLASSIFICATION" \
-    --min_sim_glom "$MIN_SIM_GLOM"
+    --min_sim_glom "$MIN_SIM_GLOM" \
+    --am_orders "$AM_ORDERS"
 
 conda deactivate
 

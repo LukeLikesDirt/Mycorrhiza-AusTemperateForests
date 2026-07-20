@@ -1,17 +1,23 @@
 #!/usr/bin/env Rscript
-# classify_glomeromycota.R — Classify ASVs and split into Glomeromycota / non-Glomeromycota pools
+# classify_am.R — Classify ASVs and split into AM / non-AM pools
+#
+# AM fungi evaluated here span two lineages: phylum Glomeromycota, and order
+# Densosporales (Mucoromycota, Endogonomycetes) — both are AM fungi.
 #
 # Reads vsearch --usearch_global output files (one per rank-specific reference
 # subset plus one for the full reference), classifies ASVs using dynamic
 # similarity cutoffs, then writes three output files:
 #   1) data/asv_classification.txt      — full ASV classification table
-#   2) tmp_clusters/glomeromycota_clusters.txt     — phylum == "Glomeromycota" AND score >= min_sim_glom
-#   3) tmp_clusters/non_glomeromycota_clusters.txt — all other ASVs
+#   2) tmp_clusters/am_clusters.txt     — the AM pool: phylum == "Glomeromycota"
+#      (score >= min_sim_glom) PLUS any ASV whose order is in --am_orders
+#      (e.g. Densosporales), which are AM fungi outside Glomeromycota. Each AM
+#      ASV carries an `am_group` label (Glomeromycota / Densosporales / ...).
+#   3) tmp_clusters/non_am_clusters.txt — all other ASVs
 #
 # Downstream OTU clustering is handled by scripts/03_cluster_otus.sh.
 #
 # Usage:
-#   Rscript utils/classify_glomeromycota.R \
+#   Rscript utils/classify_am.R \
 #     --cutoffs         cutoffs_glom_V4.txt \
 #     --classification  eukaryome_V4.classification \
 #     --vsearch_species vsearch_species.txt \
@@ -20,7 +26,8 @@
 #     --vsearch_all     vsearch_all.txt \
 #     --input           asv_sequences.fasta \
 #     --output          asv_classification.txt \
-#     --min_sim_glom    0.95
+#     --min_sim_glom    0.95 \
+#     --am_orders       Densosporales
 
 # ── Packages ──────────────────────────────────────────────────────────────────
 
@@ -64,8 +71,14 @@ option_list <- list(
   make_option("--min_sim_glom",
               type = "double", default = 0.95, metavar = "FLOAT",
               help = paste("Minimum similarity (0-1) to any Glomeromycota reference",
-                           "required for a sequence to enter the Glomeromycota pool",
-                           "[default: %default]"))
+                           "required for a phylum-Glomeromycota sequence to remain in",
+                           "the AM pool (Densosporales are not subject to this filter)",
+                           "[default: %default]")),
+  make_option("--am_orders",
+              type = "character", default = "Densosporales", metavar = "STR",
+              help = paste("Comma-separated orders outside phylum Glomeromycota to",
+                           "include in the AM pool as AM fungi (e.g. Densosporales).",
+                           "Pass \"\" to include Glomeromycota only [default: %default]"))
 )
 
 opt <- parse_args(
@@ -74,7 +87,7 @@ opt <- parse_args(
     usage = "%prog [options]",
     description = paste(
       "Classify ASVs from vsearch --usearch_global output and split into",
-      "Glomeromycota / non-Glomeromycota pools using dynamic similarity cutoffs."
+      "AM / non-AM pools using dynamic similarity cutoffs."
     )
   )
 )
@@ -101,6 +114,10 @@ vsearch_all_file      <- opt$vsearch_all
 asv_sequence_file     <- opt$input
 classification_output <- opt$output
 min_sim_glom          <- opt$min_sim_glom
+
+# Orders (outside Glomeromycota) to treat as AM fungi; empty string -> none
+am_orders <- trimws(str_split(opt$am_orders, ",")[[1]])
+am_orders <- am_orders[nzchar(am_orders)]
 
 # ── Helper functions ──────────────────────────────────────────────────────────
 
@@ -396,15 +413,16 @@ for (rank in names(superranks_list)) {
 
 # ── Pre-filter: demote Glomeromycota sequences below min_sim_glom ─────────────
 #
-# A sequence is kept in the Glomeromycota pool only if the score from the
-# classification step is >= min_sim_glom. Sequences below this threshold are
-# demoted to "Glomeromycota(unclassified)" and enter the non-Glomeromycota pool.
+# A phylum-Glomeromycota sequence is kept in the AM pool only if the score from
+# the classification step is >= min_sim_glom (Densosporales are not subject to
+# this filter). Sequences below this threshold are demoted to
+# "Glomeromycota(unclassified)" and enter the non-AM pool.
 
 demote_flag <- taxa_cutoffs$phylum == "Glomeromycota" &
                (is.na(taxa_cutoffs$score) | taxa_cutoffs$score < min_sim_glom)
 
 message("Glomeromycota pre-filter (min_sim_glom = ", min_sim_glom, "): ",
-        sum(demote_flag), " sequence(s) demoted to non-Glomeromycota pool.")
+        sum(demote_flag), " sequence(s) demoted to non-AM pool.")
 
 taxa_cutoffs <- taxa_cutoffs %>%
   mutate(
@@ -418,19 +436,32 @@ taxa_cutoffs <- taxa_cutoffs %>%
     cutoff  = if_else(demote_flag, NA_real_, cutoff)
   )
 
-# ── Write Glomeromycota and non-Glomeromycota pools ───────────────────────────
+# ── Write AM (Glomeromycota + configured orders) and non-AM pools ──────────────
+#
+# The AM pool contains all Glomeromycota ASVs plus any ASV classified to an
+# order listed in --am_orders (default: Densosporales) — AM fungi outside
+# phylum Glomeromycota. Each AM ASV is labelled in `am_group`. The two pools
+# are an exact partition, so no ASV is duplicated or dropped.
 
 dir.create("./tmp_clusters", showWarnings = FALSE)
 
-glom_clusters <- taxa_cutoffs %>%
-  filter(phylum == "Glomeromycota")
+is_am <- (taxa_cutoffs$phylum == "Glomeromycota") |
+         (taxa_cutoffs$order %in% am_orders)   # %in% is NA-safe
+is_am[is.na(is_am)] <- FALSE
 
-non_glom_clusters <- taxa_cutoffs %>%
-  filter(phylum != "Glomeromycota" | is.na(phylum) | phylum == "unclassified" |
-           phylum == "Glomeromycota(unclassified)")
+taxa_cutoffs$am_group <- case_when(
+  taxa_cutoffs$order %in% am_orders      ~ taxa_cutoffs$order,
+  taxa_cutoffs$phylum == "Glomeromycota" ~ "Glomeromycota",
+  TRUE                                   ~ NA_character_
+)
 
-fwrite(glom_clusters,     "./tmp_clusters/glomeromycota_clusters.txt",     sep = "\t")
-fwrite(non_glom_clusters, "./tmp_clusters/non_glomeromycota_clusters.txt", sep = "\t")
+am_clusters     <- taxa_cutoffs[is_am, ]
+non_am_clusters <- taxa_cutoffs[!is_am, ]
 
-message("Glomeromycota pool:     ", nrow(glom_clusters),     " sequences -> tmp_clusters/glomeromycota_clusters.txt")
-message("Non-Glomeromycota pool: ", nrow(non_glom_clusters), " sequences -> tmp_clusters/non_glomeromycota_clusters.txt")
+fwrite(am_clusters,     "./tmp_clusters/am_clusters.txt",     sep = "\t")
+fwrite(non_am_clusters, "./tmp_clusters/non_am_clusters.txt", sep = "\t")
+
+message("AM pool:     ", nrow(am_clusters), " sequences (Glomeromycota",
+        if (length(am_orders) > 0) paste0(" + ", paste(am_orders, collapse = ", ")) else "",
+        ") -> tmp_clusters/am_clusters.txt")
+message("Non-AM pool: ", nrow(non_am_clusters), " sequences -> tmp_clusters/non_am_clusters.txt")

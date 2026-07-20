@@ -63,20 +63,25 @@ parse_ordination <- function(path, pco1_prefix, pco2_prefix) {
 
 # 2. DATA IMPORT -----------------------------------------------------------------
 
-otu_classification <- fread("./tmp_clusters/otu_glom_classification.txt")
-otu_seqs           <- readDNAStringSet("./tmp_clusters/otu_glom_sequences.fasta")
-otu_table_glom     <- fread("./tmp_clusters/otu_glom_table.txt")
+# AM fungi evaluated here span two lineages: phylum Glomeromycota, and order
+# Densosporales (Mucoromycota, Endogonomycetes) — both are AM fungi. The
+# otu_am_* files are the AM pool (see --am_orders in 02_classify_asvs.sh);
+# otu_classification carries an `am_group` column (Glomeromycota / Densosporales
+# / ...) that propagates to output/classification.txt.
+otu_classification <- fread("./tmp_clusters/otu_am_classification.txt")
+otu_seqs           <- readDNAStringSet("./tmp_clusters/otu_am_sequences.fasta")
+otu_table_am       <- fread("./tmp_clusters/otu_am_table.txt")
 
-non_glom_ids <- fread("./tmp_clusters/non_glomeromycota_clusters.txt") %>%
+non_am_ids <- fread("./tmp_clusters/non_am_clusters.txt") %>%
   mutate(otu_id = gsub(";size=.*", "", otu_id)) %>%
   pull(otu_id)
 
 otu_table_all <- bind_rows(
-  otu_table_glom %>%
+  otu_table_am %>%
     pivot_longer(-otu_id, names_to = "sample_id", values_to = "abundance"),
   fread("./data/asv_table.txt") %>%
     rename(otu_id = OTU_ID) %>%
-    filter(otu_id %in% non_glom_ids) %>%
+    filter(otu_id %in% non_am_ids) %>%
     pivot_longer(-otu_id, names_to = "sample_id", values_to = "abundance")
 ) %>%
   pivot_wider(names_from = sample_id, values_from = abundance, values_fill = 0)
@@ -116,13 +121,13 @@ low_abundance_sample_ids <- sample_id_depth %>%
 
 dir.create("./output", showWarnings = FALSE)
 
-am_sample_ids <- otu_table_glom %>%
+am_sample_ids <- otu_table_am %>%
   select(-otu_id, -any_of(low_abundance_sample_ids)) %>%
   names()
 
 am_otu_ids <- otu_table_library_filtered %>%
   select(-any_of(low_abundance_sample_ids)) %>%
-  filter(otu_id %in% otu_table_glom$otu_id,
+  filter(otu_id %in% otu_table_am$otu_id,
          rowSums(select(., -otu_id)) > 0) %>%
   pivot_longer(cols = -otu_id, names_to = "sample_id", values_to = "abundance") %>%
   filter(abundance > 0) %>%
@@ -254,6 +259,104 @@ diversity_estimate <- am_alpha_diversity %>%
   )
 
 fwrite(diversity_estimate, "./output/diversity_am.txt", sep = "\t")
+
+# 9. GROUP-SPECIFIC (GLOMEROMYCOTA / DENSOSPORALES) DIVERSITY METRICS -----------
+#
+# Same methodology as diversity_am.txt (SRS-normalised alpha diversity, Hill
+# numbers, Aitchison RPCA ordination), computed separately per am_group so
+# within-lineage diversity/ordination isn't diluted by the other lineage's
+# presence/absence pattern. Reuses the SRS normalisation, raw AM table and
+# tree already computed above (sections 4-6) rather than re-running QC/SRS.
+
+compute_group_diversity <- function(group_label, file_suffix) {
+
+  group_otu_ids <- otu_classification %>%
+    filter(am_group == group_label) %>%
+    pull(otu_id)
+
+  group_otu_table_raw <- otu_table_am_raw %>% filter(otu_id %in% group_otu_ids)
+  group_otu_table_srs <- otu_table_am_srs %>% filter(otu_id %in% group_otu_ids)
+
+  raw_table_path <- paste0("output/otu_table_", file_suffix, ".txt")
+  biom_path       <- paste0("data/distances/otus_", file_suffix, ".biom")
+  fwrite(group_otu_table_raw, raw_table_path, sep = "\t")
+
+  system(paste0(
+    "conda run -n gemelli_env biom convert -i ", raw_table_path,
+    " -o ", biom_path, ' --table-type="OTU table" --to-json'
+  ))
+
+  system(paste0(
+    "conda run -n gemelli_env gemelli rpca --in-biom ", biom_path,
+    " --output-dir data/distances/ --min-feature-frequency 1"
+  ))
+  system(paste0("mv data/distances/ordination.txt data/distances/ordination_identity_", file_suffix, ".txt"))
+  system(paste0("mv data/distances/distance-matrix.tsv output/dist_identity_", file_suffix, ".txt"))
+
+  comm_matrix_group <- group_otu_table_srs %>% column_to_rownames("otu_id") %>% t()
+  # hill_phylo() needs a tree pruned to the SRS community's OTU set; gemelli's
+  # phylogeny input must instead be a superset of the (raw-table-derived) biom's
+  # OTUs, so it reuses the full combined tree (output/tree.newick) exactly like
+  # the combined-AM ordination above does — never a group-pruned tree.
+  group_tree <- keep.tip(rooted_tree, tip = colnames(comm_matrix_group))
+
+  system(paste0(
+    "conda run -n gemelli_env gemelli phylogenetic-rpca --in-biom ", biom_path,
+    " --in-phylogeny output/tree.newick --output-dir data/distances/ --min-feature-frequency 1"
+  ))
+  system(paste0("mv data/distances/ordination.txt data/distances/ordination_phylogeny_", file_suffix, ".txt"))
+  system(paste0("mv data/distances/distance-matrix.tsv output/dist_phylogeny_", file_suffix, ".txt"))
+
+  group_ordination <-
+    parse_ordination(paste0("data/distances/ordination_identity_", file_suffix, ".txt"), "pco1_tax", "pco2_tax") %>%
+    left_join(
+      parse_ordination(paste0("data/distances/ordination_phylogeny_", file_suffix, ".txt"), "pco1_phy", "pco2_phy"),
+      by = "sample_id"
+    )
+
+  group_alpha_diversity <- group_otu_table_srs %>%
+    pivot_longer(-otu_id, names_to = "sample_id", values_to = "abundance") %>%
+    filter(abundance > 0) %>%
+    group_by(sample_id) %>%
+    summarise(abundance_srs = sum(abundance), richness_srs = n_distinct(otu_id), .groups = "drop")
+
+  group_hill_diversity <- list(
+    hill_taxa(comm_matrix_group, q = 0)                        %>% enframe("sample_id", "hill_tax_div_q0"),
+    hill_taxa(comm_matrix_group, q = 1)                        %>% enframe("sample_id", "hill_tax_div_q1"),
+    hill_taxa(comm_matrix_group, q = 2)                        %>% enframe("sample_id", "hill_tax_div_q2"),
+    hill_phylo(comm_matrix_group, tree = group_tree, q = 0)    %>% enframe("sample_id", "hill_phy_div_q0"),
+    hill_phylo(comm_matrix_group, tree = group_tree, q = 1)    %>% enframe("sample_id", "hill_phy_div_q1"),
+    hill_phylo(comm_matrix_group, tree = group_tree, q = 2)    %>% enframe("sample_id", "hill_phy_div_q2")
+  ) %>%
+    reduce(left_join, by = "sample_id") %>%
+    mutate(
+      hill_tax_even_q1 = hill_tax_div_q1 / hill_tax_div_q0,
+      hill_tax_even_q2 = hill_tax_div_q2 / hill_tax_div_q0,
+      hill_phy_even_q1 = hill_phy_div_q1 / hill_phy_div_q0,
+      hill_phy_even_q2 = hill_phy_div_q2 / hill_phy_div_q0
+    )
+
+  group_alpha_diversity %>%
+    inner_join(sample_id_depth %>% select(sample_id, total_sample_abundance = n_seqs),
+               by = "sample_id") %>%
+    left_join(group_hill_diversity, by = "sample_id") %>%
+    left_join(group_ordination,     by = "sample_id") %>%
+    select(
+      sample_id, total_sample_abundance, abundance_srs, richness_srs,
+      hill_tax_div_q0, hill_tax_div_q1, hill_tax_div_q2,
+      hill_tax_even_q1, hill_tax_even_q2,
+      hill_phy_div_q0, hill_phy_div_q1, hill_phy_div_q2,
+      hill_phy_even_q1, hill_phy_even_q2,
+      starts_with("pco1_tax_"), starts_with("pco2_tax_"),
+      starts_with("pco1_phy_"), starts_with("pco2_phy_")
+    )
+}
+
+diversity_g_am <- compute_group_diversity("Glomeromycota", "g_am")
+fwrite(diversity_g_am, "./output/diversity_g_am.txt", sep = "\t")
+
+diversity_d_am <- compute_group_diversity("Densosporales", "d_am")
+fwrite(diversity_d_am, "./output/diversity_d_am.txt", sep = "\t")
 
 dir.create("../../data/am", showWarnings = FALSE)
 file.copy(from = list.files("./output/", full.names = TRUE),

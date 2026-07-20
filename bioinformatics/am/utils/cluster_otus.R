@@ -1,5 +1,6 @@
 #!/usr/bin/env Rscript
-# 03_cluster_otus.R — Dynamic OTU clustering for Glomeromycota ASVs
+# 03_cluster_otus.R — Dynamic OTU clustering for the AM pool
+#   (Glomeromycota plus any configured AM orders, e.g. Densosporales)
 #
 # Reference-based clustering uses vsearch --usearch_global (global alignment).
 #
@@ -16,7 +17,7 @@
 #     --asv_table        data/asv_table.txt \
 #     --asv_classification data/asv_classification.txt \
 #     --ref_classification data/ref_seqs/eukaryome_V4.classification \
-#     --glom_clusters    tmp_clusters/glomeromycota_clusters.txt \
+#     --am_clusters      tmp_clusters/am_clusters.txt \
 #     --threads          10
 
 # ── Packages ──────────────────────────────────────────────────────────────────
@@ -43,10 +44,10 @@ option_list <- list(
   make_option(c("-r", "--ref_classification"),
               type = "character", metavar = "FILE",
               help = "Reference sequence classification file (for taxonomy string formatting) [required]"),
-  make_option(c("-g", "--glom_clusters"),
-              type = "character", default = "./tmp_clusters/glomeromycota_clusters.txt",
+  make_option(c("-g", "--am_clusters"),
+              type = "character", default = "./tmp_clusters/am_clusters.txt",
               metavar = "FILE",
-              help = "Glomeromycota clusters file produced by 02_classify_asvs.sh [default: %default]"),
+              help = "AM clusters file produced by 02_classify_asvs.sh [default: %default]"),
   make_option("--threads",
               type = "integer", default = 1L, metavar = "INT",
               help = "Number of threads for vsearch [default: %default]"),
@@ -66,7 +67,7 @@ opt <- parse_args(
     option_list = option_list,
     usage = "%prog [options]",
     description = paste(
-      "Dynamic OTU clustering for Glomeromycota ASVs.",
+      "Dynamic OTU clustering for the AM pool.",
       "Reference-based clustering uses vsearch --usearch_global.",
       "De novo clustering uses vsearch --allpairs_global + union-find (exact single-linkage)."
     )
@@ -80,8 +81,8 @@ if (is.null(opt$asv_table))         stop("--asv_table is required.")
 if (is.null(opt$asv_classification)) stop("--asv_classification is required.")
 if (is.null(opt$ref_classification)) stop("--ref_classification is required.")
 
-if (!file.exists(opt$glom_clusters)) {
-  stop("Glomeromycota clusters file not found: ", opt$glom_clusters,
+if (!file.exists(opt$am_clusters)) {
+  stop("AM clusters file not found: ", opt$am_clusters,
        "\nPlease run 02_classify_asvs.sh first.")
 }
 
@@ -91,7 +92,7 @@ asv_sequence_file           <- opt$asv_sequences
 asv_sample_matrix_file      <- opt$asv_table
 asv_classification_file     <- opt$asv_classification
 ref_seq_classification_file <- opt$ref_classification
-taxa_cutoffs_file           <- opt$glom_clusters
+taxa_cutoffs_file           <- opt$am_clusters
 threads                     <- opt$threads
 maxaccepts                  <- opt$maxaccepts
 maxrejects                  <- opt$maxrejects
@@ -441,7 +442,16 @@ get_cutoff_for_rank <- function(taxa_file, rank, rank_cutoff_col) {
 
 taxa_cutoffs <- fread(taxa_cutoffs_file)
 
-# Clustering hierarchy for Glomeromycota
+# AM group label (e.g. Glomeromycota / Densosporales) set in 02_classify_asvs.sh.
+# Captured here keyed by ASV id so it can be re-attached to the final OTU
+# classification after clustering, independent of how columns are reshaped below.
+if (!"am_group" %in% names(taxa_cutoffs)) taxa_cutoffs$am_group <- NA_character_
+am_group_lookup <- taxa_cutoffs %>%
+  mutate(asv_id = str_replace(otu_id, ";size=\\d+$", "")) %>%
+  select(asv_id, am_group) %>%
+  distinct()
+
+# Clustering hierarchy for the AM pool
 clustering_hierarchy <- list(
   list(superrank = "phylum", rank = "family",   subrank = "genus"),
   list(superrank = "class", rank = "family",   subrank = "genus"),
@@ -630,7 +640,11 @@ otu_classification <- pre_clustered_otus %>%
       reference_taxonomy
     ),
     otu_id = str_replace(otu_id, ";size=\\d+$", "")
-  )
+  ) %>%
+  # Re-attach the AM group label (Glomeromycota / Densosporales / ...) from the
+  # input pool, keyed by the OTU representative ASV id.
+  mutate(am_group = am_group_lookup$am_group[match(otu_id, am_group_lookup$asv_id)]) %>%
+  relocate(am_group, .after = otu_id)
 
 # Check for empty taxonomies
 otu_classification %>%
@@ -767,31 +781,32 @@ if (!all(otu_class_names %in% otu_rep_names)) {
 }
 message("All OTU IDs match between representative sequences and classification!")
 
-# ── Save Glomeromycota outputs ────────────────────────────────────────────────
+# ── Save AM outputs ───────────────────────────────────────────────────────────
 
-fwrite(otu_sample_matrix, "./tmp_clusters/otu_glom_table.txt", sep = "\t")
-fwrite(otu_classification, "./tmp_clusters/otu_glom_classification.txt", sep = "\t")
-writeXStringSet(otu_representative_sequences, "./tmp_clusters/otu_glom_sequences.fasta")
+fwrite(otu_sample_matrix, "./tmp_clusters/otu_am_table.txt", sep = "\t")
+fwrite(otu_classification, "./tmp_clusters/otu_am_classification.txt", sep = "\t")
+writeXStringSet(otu_representative_sequences, "./tmp_clusters/otu_am_sequences.fasta")
 
 # ── Save final combined outputs ───────────────────────────────────────────────
 
-non_glomeromycota_clusters <- fread("./tmp_clusters/non_glomeromycota_clusters.txt") %>%
-  mutate(otu_id = str_replace(otu_id, ";size=\\d+$", "")) 
+non_am_clusters <- fread("./tmp_clusters/non_am_clusters.txt") %>%
+  mutate(otu_id = str_replace(otu_id, ";size=\\d+$", "")) %>%
+  select(-any_of("am_group"))
 
-non_glomeromycota_clusters %>%
-  fwrite("./output/otu_classification_non_glom.txt", sep = "\t")
+non_am_clusters %>%
+  fwrite("./output/otu_classification_non_am.txt", sep = "\t")
 
 # Family-level OTU tables
-non_glomeromycota_family_clusters <- asv_sample_matrix %>%
+non_am_family_clusters <- asv_sample_matrix %>%
   rename(otu_id = OTU_ID) %>%
   pivot_longer(cols = -otu_id, names_to = "sample_id", values_to = "abundance") %>%
   filter(abundance > 0) %>%
-  inner_join(non_glomeromycota_clusters %>% select(otu_id, family), by = "otu_id") %>%
+  inner_join(non_am_clusters %>% select(otu_id, family), by = "otu_id") %>%
   group_by(family, sample_id) %>%
   summarise(abundance = sum(abundance), .groups = "drop") %>%
   arrange(desc(abundance))
 
-glomeromycota_family_clusters <- otu_sample_matrix %>%
+am_family_clusters <- otu_sample_matrix %>%
   pivot_longer(cols = -otu_id, names_to = "sample_id", values_to = "abundance") %>%
   filter(abundance > 0) %>%
   inner_join(otu_classification %>% select(otu_id, family), by = "otu_id") %>%
@@ -799,12 +814,12 @@ glomeromycota_family_clusters <- otu_sample_matrix %>%
   summarise(abundance = sum(abundance), .groups = "drop") %>%
   arrange(desc(abundance))
 
-bind_rows(non_glomeromycota_family_clusters, glomeromycota_family_clusters) %>%
+bind_rows(non_am_family_clusters, am_family_clusters) %>%
   pivot_wider(names_from = sample_id, values_from = abundance, values_fill = 0,
               values_fn = sum) %>%
   fwrite("./output/otu_table_all_family.txt", sep = "\t")
 
-glomeromycota_family_clusters %>%
+am_family_clusters %>%
   pivot_wider(names_from = sample_id, values_from = abundance, values_fill = 0,
               values_fn = sum) %>%
-  fwrite("./output/otu_table_glom_family.txt", sep = "\t")
+  fwrite("./output/otu_table_am_family.txt", sep = "\t")

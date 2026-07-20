@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Script:   Dynamic OTU clustering for Glomeromycota ASVs using rank-specific
+# Script:   Dynamic OTU clustering for the AM pool using rank-specific
 #           similarity cutoffs, reference-based and de novo approaches
 # Author:   Luke Florence
 # Date:     20th March 2026
@@ -9,15 +9,18 @@
 # –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 # - Run this script from the './bioinformatics/am/' directory
 #
+# - AM fungi evaluated here span two lineages: phylum Glomeromycota, and order
+#   Densosporales (Mucoromycota, Endogonomycetes) — both are AM fungi.
+#
 # - Reference-based clustering uses vsearch --usearch_global (global alignment)
 #
 # - De novo clustering uses vsearch --allpairs_global + union-find (exact
 #   single-linkage) for ASVs with no reference match
 #
 # - Requires outputs from 02_classify_asvs.sh (asv_classification.txt and
-#   tmp_clusters/glomeromycota_clusters.txt)
+#   tmp_clusters/am_clusters.txt)
 #
-# - Clustering uses Glomromycota-specific similarity cutoffs for ranks family 
+# - Clustering uses Glomromycota-specific similarity cutoffs for ranks family
 #   to species, predicted by dyna-clust-predict-am:
 #   https://github.com/LukeLikesDirt/dyna-clust-predict-am
 # –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
@@ -31,7 +34,7 @@ readonly ASV_SEQUENCES="./data/asv_sequences.fasta"
 readonly ASV_TABLE="./data/asv_table.txt"
 readonly ASV_CLASSIFICATION="./data/asv_classification.txt"
 readonly REF_CLASSIFICATION="./data/ref_seqs/eukaryome_V4_all.classification"
-readonly GLOM_CLUSTERS="./tmp_clusters/glomeromycota_clusters.txt"
+readonly AM_CLUSTERS="./tmp_clusters/am_clusters.txt"
 
 # Utility script
 readonly CLUSTER_OTUS="./utils/cluster_otus.R"
@@ -66,7 +69,7 @@ Rscript "$CLUSTER_OTUS" \
     --asv_table           "$ASV_TABLE" \
     --asv_classification  "$ASV_CLASSIFICATION" \
     --ref_classification  "$REF_CLASSIFICATION" \
-    --glom_clusters       "$GLOM_CLUSTERS" \
+    --am_clusters         "$AM_CLUSTERS" \
     --threads             "$NUM_THREADS" \
     --maxaccepts          "$MAXACCEPTS" \
     --maxrejects          "$MAXREJECTS" \
