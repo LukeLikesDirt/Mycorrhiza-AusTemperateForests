@@ -2,7 +2,14 @@
 # classify_am.R — Classify ASVs and split into AM / non-AM pools
 #
 # AM fungi evaluated here span two lineages: phylum Glomeromycota, and order
-# Densosporales (Mucoromycota, Endogonomycetes) — both are AM fungi.
+# Densosporales (class Endogonomycetes, Mucoromycota) — both are AM fungi.
+# All of order Densosporales is included (not just the named families
+# Densosporaceae/Planticonsortiaceae): Lutz et al. 2025 (Fungal Ecology 74,
+# 101407) — co-authored by the same EUKARYOME curators (Mikryukov, Tedersoo)
+# who name the Densosporales families in Tedersoo et al. 2024 (MycoKeys 107)
+# — define putative E-AMF at order rank ("OTUs assigned 'Densosporales' at
+# order level"), citing strong root-colonisation evidence for the order as a
+# whole while flagging finer within-order resolution as future work.
 #
 # Reads vsearch --usearch_global output files (one per rank-specific reference
 # subset plus one for the full reference), classifies ASVs using dynamic
@@ -10,15 +17,15 @@
 #   1) data/asv_classification.txt      — full ASV classification table
 #   2) tmp_clusters/am_clusters.txt     — the AM pool: phylum == "Glomeromycota"
 #      (score >= min_sim_glom) PLUS any ASV whose order is in --am_orders
-#      (e.g. Densosporales), which are AM fungi outside Glomeromycota. Each AM
-#      ASV carries an `am_group` label (Glomeromycota / Densosporales / ...).
+#      (default: Densosporales), which are AM fungi outside Glomeromycota.
+#      Each AM ASV carries an `am_group` label (Glomeromycota / Endogonomycetes).
 #   3) tmp_clusters/non_am_clusters.txt — all other ASVs
 #
 # Downstream OTU clustering is handled by scripts/03_cluster_otus.sh.
 #
 # Usage:
 #   Rscript utils/classify_am.R \
-#     --cutoffs         cutoffs_glom_V4.txt \
+#     --cutoffs         cutoffs_V4_am.txt \
 #     --classification  eukaryome_V4.classification \
 #     --vsearch_species vsearch_species.txt \
 #     --vsearch_genus   vsearch_genus.txt \
@@ -77,7 +84,7 @@ option_list <- list(
   make_option("--am_orders",
               type = "character", default = "Densosporales", metavar = "STR",
               help = paste("Comma-separated orders outside phylum Glomeromycota to",
-                           "include in the AM pool as AM fungi (e.g. Densosporales).",
+                           "include in the AM pool as AM fungi (default: Densosporales).",
                            "Pass \"\" to include Glomeromycota only [default: %default]"))
 )
 
@@ -294,7 +301,7 @@ get_rank_cutoff <- function(taxa_file, unique_taxa_cutoffs, cutoff_file, rank, s
 # Read reference classification once — reused by every format_vsearch() call
 ref_classification <- fread(classification_file)
 
-taxon_cutoffs <- fread(cutoff_file) %>%
+taxon_cutoffs <- fread(cutoff_file, fill = TRUE) %>%
   select(rank = rank, taxa = dataset, cutoff = "cut-off")
 
 # ── Pre-read vsearch files (each file read exactly once) ─────────────────────
@@ -440,8 +447,9 @@ taxa_cutoffs <- taxa_cutoffs %>%
 #
 # The AM pool contains all Glomeromycota ASVs plus any ASV classified to an
 # order listed in --am_orders (default: Densosporales) — AM fungi outside
-# phylum Glomeromycota. Each AM ASV is labelled in `am_group`. The two pools
-# are an exact partition, so no ASV is duplicated or dropped.
+# phylum Glomeromycota. Each AM ASV is labelled in `am_group` as
+# "Glomeromycota" or "Endogonomycetes" (the class Densosporales belongs to).
+# The two pools are an exact partition, so no ASV is duplicated or dropped.
 
 dir.create("./tmp_clusters", showWarnings = FALSE)
 
@@ -450,7 +458,7 @@ is_am <- (taxa_cutoffs$phylum == "Glomeromycota") |
 is_am[is.na(is_am)] <- FALSE
 
 taxa_cutoffs$am_group <- case_when(
-  taxa_cutoffs$order %in% am_orders      ~ taxa_cutoffs$order,
+  taxa_cutoffs$order %in% am_orders      ~ "Endogonomycetes",
   taxa_cutoffs$phylum == "Glomeromycota" ~ "Glomeromycota",
   TRUE                                   ~ NA_character_
 )

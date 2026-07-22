@@ -442,7 +442,7 @@ get_cutoff_for_rank <- function(taxa_file, rank, rank_cutoff_col) {
 
 taxa_cutoffs <- fread(taxa_cutoffs_file)
 
-# AM group label (e.g. Glomeromycota / Densosporales) set in 02_classify_asvs.sh.
+# AM group label (Glomeromycota / Endogonomycetes) set in 02_classify_asvs.sh.
 # Captured here keyed by ASV id so it can be re-attached to the final OTU
 # classification after clustering, independent of how columns are reshaped below.
 if (!"am_group" %in% names(taxa_cutoffs)) taxa_cutoffs$am_group <- NA_character_
@@ -641,7 +641,7 @@ otu_classification <- pre_clustered_otus %>%
     ),
     otu_id = str_replace(otu_id, ";size=\\d+$", "")
   ) %>%
-  # Re-attach the AM group label (Glomeromycota / Densosporales / ...) from the
+  # Re-attach the AM group label (Glomeromycota / Endogonomycetes) from the
   # input pool, keyed by the OTU representative ASV id.
   mutate(am_group = am_group_lookup$am_group[match(otu_id, am_group_lookup$asv_id)]) %>%
   relocate(am_group, .after = otu_id)

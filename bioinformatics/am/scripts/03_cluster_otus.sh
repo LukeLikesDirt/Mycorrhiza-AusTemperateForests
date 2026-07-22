@@ -10,7 +10,7 @@
 # - Run this script from the './bioinformatics/am/' directory
 #
 # - AM fungi evaluated here span two lineages: phylum Glomeromycota, and order
-#   Densosporales (Mucoromycota, Endogonomycetes) — both are AM fungi.
+#   Densosporales (class Endogonomycetes, Mucoromycota) — both are AM fungi.
 #
 # - Reference-based clustering uses vsearch --usearch_global (global alignment)
 #
@@ -20,9 +20,11 @@
 # - Requires outputs from 02_classify_asvs.sh (asv_classification.txt and
 #   tmp_clusters/am_clusters.txt)
 #
-# - Clustering uses Glomromycota-specific similarity cutoffs for ranks family
-#   to species, predicted by dyna-clust-predict-am:
-#   https://github.com/LukeLikesDirt/dyna-clust-predict-am
+# - Clustering uses group-specific similarity cutoffs for ranks family to
+#   species — Glomeromycota cutoffs predicted by dyna-clust-predict-am
+#   (https://github.com/LukeLikesDirt/dyna-clust-predict-am), Endogonomycetes
+#   (Densosporales) cutoffs predicted the same way — see
+#   data/ref_seqs/cutoffs_V4_am.txt
 # –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 
 # –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––

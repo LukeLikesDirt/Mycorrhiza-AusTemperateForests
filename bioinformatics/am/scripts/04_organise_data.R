@@ -64,10 +64,10 @@ parse_ordination <- function(path, pco1_prefix, pco2_prefix) {
 # 2. DATA IMPORT -----------------------------------------------------------------
 
 # AM fungi evaluated here span two lineages: phylum Glomeromycota, and order
-# Densosporales (Mucoromycota, Endogonomycetes) — both are AM fungi. The
+# Densosporales (class Endogonomycetes, Mucoromycota) — both are AM fungi. The
 # otu_am_* files are the AM pool (see --am_orders in 02_classify_asvs.sh);
-# otu_classification carries an `am_group` column (Glomeromycota / Densosporales
-# / ...) that propagates to output/classification.txt.
+# otu_classification carries an `am_group` column (Glomeromycota /
+# Endogonomycetes) that propagates to output/classification.txt.
 otu_classification <- fread("./tmp_clusters/otu_am_classification.txt")
 otu_seqs           <- readDNAStringSet("./tmp_clusters/otu_am_sequences.fasta")
 otu_table_am       <- fread("./tmp_clusters/otu_am_table.txt")
@@ -260,7 +260,7 @@ diversity_estimate <- am_alpha_diversity %>%
 
 fwrite(diversity_estimate, "./output/diversity_am.txt", sep = "\t")
 
-# 9. GROUP-SPECIFIC (GLOMEROMYCOTA / DENSOSPORALES) DIVERSITY METRICS -----------
+# 9. GROUP-SPECIFIC (GLOMEROMYCOTA / ENDOGONOMYCETES) DIVERSITY METRICS --------
 #
 # Same methodology as diversity_am.txt (SRS-normalised alpha diversity, Hill
 # numbers, Aitchison RPCA ordination), computed separately per am_group so
@@ -355,8 +355,8 @@ compute_group_diversity <- function(group_label, file_suffix) {
 diversity_g_am <- compute_group_diversity("Glomeromycota", "g_am")
 fwrite(diversity_g_am, "./output/diversity_g_am.txt", sep = "\t")
 
-diversity_d_am <- compute_group_diversity("Densosporales", "d_am")
-fwrite(diversity_d_am, "./output/diversity_d_am.txt", sep = "\t")
+diversity_e_am <- compute_group_diversity("Endogonomycetes", "e_am")
+fwrite(diversity_e_am, "./output/diversity_e_am.txt", sep = "\t")
 
 dir.create("../../data/am", showWarnings = FALSE)
 file.copy(from = list.files("./output/", full.names = TRUE),

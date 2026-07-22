@@ -26,7 +26,13 @@
 #   resolution for non-Glomromycota ASVs.
 #
 # - AM fungi evaluated here span two lineages: phylum Glomeromycota, and order
-#   Densosporales (Mucoromycota, Endogonomycetes) — both are AM fungi.
+#   Densosporales (class Endogonomycetes, Mucoromycota) — both are AM fungi.
+#   All of order Densosporales is included per Lutz et al. 2025 (Fungal
+#   Ecology 74, 101407), co-authored by the same EUKARYOME curators
+#   (Mikryukov, Tedersoo) who name the Densosporales families in Tedersoo
+#   et al. 2024 (MycoKeys 107): they define putative E-AMF at order rank,
+#   citing strong root-colonisation evidence for Densosporales as a whole
+#   (see AM_ORDERS below).
 #
 # –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 
@@ -40,29 +46,31 @@ readonly NUM_THREADS=12
 # vsearch clustering and assignment parameters
 readonly MAXACCEPTS=0
 readonly MAXREJECTS=1000
-readonly MIN_SIM_SPECIES=0.990
-readonly MIN_SIM_GENUS=0.975
+readonly MIN_SIM_SPECIES=0.995
+readonly MIN_SIM_GENUS=0.980
 readonly MIN_SIM_FAMILY=0.950
 readonly MIN_SIM=0.750
 
 # vsearch --id thresholds: 5% below the target cutoff to allow filter_seqs to
 # apply the actual cutoff to the output (avoids missing borderline hits)
-readonly MIN_SIM_SPECIES_SEARCH=0.940
-readonly MIN_SIM_GENUS_SEARCH=0.925
+readonly MIN_SIM_SPECIES_SEARCH=0.945
+readonly MIN_SIM_GENUS_SEARCH=0.930
 readonly MIN_SIM_FAMILY_SEARCH=0.900
 
 # Minimum similarity for ASVs to be classified glomeromycota (analgous to family-level classification)
 readonly MIN_SIM_GLOM=0.950
 
 # Orders outside phylum Glomeromycota to include in the AM pool as AM fungi
-# (comma-separated). Densosporales (Mucoromycota) are AM fungi, so they are
-# carried through to the final AM outputs alongside Glomeromycota.
+# (comma-separated). Densosporales (class Endogonomycetes, Mucoromycota) is
+# included in full per Lutz et al. 2025 (Fungal Ecology 74, 101407), which
+# defines putative E-AMF as all ASVs/OTUs assigned to order Densosporales,
+# citing strong root-colonisation evidence for the order.
 readonly AM_ORDERS="Densosporales"
 
 # Input reference files
 readonly REFERENCE_SEQUENCES_ALL="./data/ref_seqs/eukaryome_V4_all.fasta"
 readonly CLASSIFICATION_FILE="./data/ref_seqs/eukaryome_V4_all.classification"
-readonly CUTOFF_FILE="./data/ref_seqs/cutoffs_glom_V4.txt"
+readonly CUTOFF_FILE="./data/ref_seqs/cutoffs_V4_am.txt"
 
 # Temporary rank-specific reference subsets
 readonly REFERENCE_SEQUENCES_SPECIES="./tmp/eukaryome_V4_species.fasta"
@@ -233,28 +241,28 @@ conda activate dyna_clust_env
 echo "=== CREATING RANK-SPECIFIC REFERENCE SUBSETS ==="
 echo $(date)
 echo ""
-#subset_references
+subset_references
 
 echo "=== ASSIGNING TAXONOMY WITH vsearch AT RANK SPECIES ==="
 echo $(date)
 echo ""
-#vsearch_species
-#filter_seqs "$VSEARCH_SPECIES_FILE" "$MIN_SIM_SPECIES"
-#filter_classified "$VSEARCH_SPECIES_FILE" "$IN_SEQUENCES" "$REMAINING_AFTER_SPECIES"
+vsearch_species
+filter_seqs "$VSEARCH_SPECIES_FILE" "$MIN_SIM_SPECIES"
+filter_classified "$VSEARCH_SPECIES_FILE" "$IN_SEQUENCES" "$REMAINING_AFTER_SPECIES"
 
 echo "=== ASSIGNING TAXONOMY WITH vsearch AT RANK GENUS ==="
 echo $(date)
 echo ""
-#vsearch_genus "$REMAINING_AFTER_SPECIES"
-#filter_seqs "$VSEARCH_GENUS_FILE" "$MIN_SIM_GENUS"
-#filter_classified "$VSEARCH_GENUS_FILE" "$REMAINING_AFTER_SPECIES" "$REMAINING_AFTER_GENUS"
+vsearch_genus "$REMAINING_AFTER_SPECIES"
+filter_seqs "$VSEARCH_GENUS_FILE" "$MIN_SIM_GENUS"
+filter_classified "$VSEARCH_GENUS_FILE" "$REMAINING_AFTER_SPECIES" "$REMAINING_AFTER_GENUS"
 
 echo "=== ASSIGNING TAXONOMY WITH vsearch AT RANK FAMILY ==="
 echo $(date)
 echo ""
-#vsearch_family "$REMAINING_AFTER_GENUS"
-#filter_seqs "$VSEARCH_FAMILY_FILE" "$MIN_SIM_FAMILY"
-#filter_classified "$VSEARCH_FAMILY_FILE" "$REMAINING_AFTER_GENUS" "$REMAINING_AFTER_FAMILY"
+vsearch_family "$REMAINING_AFTER_GENUS"
+filter_seqs "$VSEARCH_FAMILY_FILE" "$MIN_SIM_FAMILY"
+filter_classified "$VSEARCH_FAMILY_FILE" "$REMAINING_AFTER_GENUS" "$REMAINING_AFTER_FAMILY"
 
 echo "=== ASSIGNING TAXONOMY WITH vsearch AGAINST FULL REFERENCE ==="
 echo $(date)
