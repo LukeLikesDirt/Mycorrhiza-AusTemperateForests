@@ -150,7 +150,7 @@ sample_id_depth <- otu_table_library_filtered %>%
   arrange(n_seqs) %>%
   print()
 
-min_depth <- 4500
+min_depth <- 3600
 
 low_abundance_sample_ids <- sample_id_depth %>%
   filter(n_seqs < min_depth | grepl("moc|neg", sample_id)) %>%
@@ -449,9 +449,26 @@ for (lin in target_lineages) {
 
 # 10. COPY OUTPUTS TO DATA FOLDER -------------------------------------------------
 
-dir.create("../../data/ecm", showWarnings = FALSE)
+dir.create("../../data/emf", showWarnings = FALSE)
 file.copy(from = list.files("./output/", full.names = TRUE),
-          to   = "../../data/ecm/",
+          to   = "../../data/emf/",
           recursive = TRUE)
+
+# Rename the guild-specific outputs in data/emf/ to the EMF terminology used
+# downstream (alpha-diversity scripts, TITAN) -- this renames the copies in
+# data/emf/ only, not the pipeline-local files under ./output/ (or, for
+# otu_classification_non_ecm.txt / otu_table_ecm_genus.txt, the upstream
+# utils/cluster_otus.R outputs they're copied from), so re-running this script
+# is idempotent with respect to that local naming. Files with no guild-specific
+# token (classification.txt, otu_table.txt, otu_table_srs.txt, dist_identity.txt,
+# dist_phylogeny.txt, sequences.fasta, tree.newick, otu_table_all_genus.txt,
+# and the lineage-specific diversity_*.txt files) are left as-is.
+file.rename("../../data/emf/diversity_ecm.txt", "../../data/emf/diversity_emf.txt")
+
+file.rename("../../data/emf/otu_table_srs_ecm_genus.txt", "../../data/emf/otu_table_srs_emf_genus.txt")
+file.rename("../../data/emf/otu_table_ecm_genus.txt",      "../../data/emf/otu_table_emf_genus.txt")
+
+# From utils/cluster_otus.R, swept into ./output/ before this script runs
+file.rename("../../data/emf/otu_classification_non_ecm.txt", "../../data/emf/otu_classification_non_emf.txt")
 
 message("---- Pipeline complete ----")

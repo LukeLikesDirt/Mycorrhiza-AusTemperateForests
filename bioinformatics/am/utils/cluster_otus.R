@@ -452,10 +452,19 @@ am_group_lookup <- taxa_cutoffs %>%
   distinct()
 
 # Clustering hierarchy for the AM pool
+#
+# The first three levels all target rank = "family" and share the same
+# tmp_clusters/family_clusters.txt, so they run cumulatively: whatever a pass
+# resolves (real or de novo pseudo) is no longer "unclassified" for later
+# passes. Ordering these finest-superrank-first (order -> class -> phylum)
+# ensures each family-unclassified ASV is caught, and pseudo-labelled, by its
+# nearest REAL ancestor rank rather than being swept up by the broadest
+# (phylum) pass first — e.g. a Densosporales ASV gets
+# "Densosporales_pseudo_fam_*", not "Mucoromycota_pseudo_fam_*".
 clustering_hierarchy <- list(
-  list(superrank = "phylum", rank = "family",   subrank = "genus"),
-  list(superrank = "class", rank = "family",   subrank = "genus"),
   list(superrank = "order", rank = "family",   subrank = "genus"),
+  list(superrank = "class", rank = "family",   subrank = "genus"),
+  list(superrank = "phylum", rank = "family",   subrank = "genus"),
   list(superrank = "family", rank = "genus",   subrank = "species"),
   list(superrank = "genus",  rank = "species",  subrank = NULL)
 )
@@ -504,12 +513,12 @@ pre_clustered_otus <- pre_clustered_otus %>%
   mutate(
     phylum = case_when(
       str_detect(phylum, "_pseudo_") ~ paste0(
-        str_extract(phylum, "^[^_]+"), "_pseudo_phy_", sprintf("%04d", cur_group_id())),
+        str_replace(phylum, "_pseudo_.*$", ""), "_pseudo_phy_", sprintf("%04d", cur_group_id())),
       str_detect(phylum, "unclassified") ~ paste0(
-        str_extract(kingdom, "^[^_]+"), "_pseudo_phy_", sprintf("%04d", cur_group_id())),
+        str_replace(kingdom, "_pseudo_.*$", ""), "_pseudo_phy_", sprintf("%04d", cur_group_id())),
       (str_detect(phylum, "Incerate") & str_detect(genus, "_pseudo_")) |
         (str_detect(phylum, "Incerate") & str_detect(phylum, "unclassified")) ~ paste0(
-          str_extract(kingdom, "^[^_]+"), "_pseudo_phy_", sprintf("%04d", cur_group_id())),
+          str_replace(kingdom, "_pseudo_.*$", ""), "_pseudo_phy_", sprintf("%04d", cur_group_id())),
       TRUE ~ phylum
     )
   ) %>%
@@ -518,12 +527,12 @@ pre_clustered_otus <- pre_clustered_otus %>%
   mutate(
     class = case_when(
       str_detect(class, "_pseudo_") ~ paste0(
-        str_extract(class, "^[^_]+"), "_pseudo_cls_", sprintf("%04d", cur_group_id())),
+        str_replace(class, "_pseudo_.*$", ""), "_pseudo_cls_", sprintf("%04d", cur_group_id())),
       str_detect(class, "unclassified") ~ paste0(
-        str_extract(phylum, "^[^_]+"), "_pseudo_cls_", sprintf("%04d", cur_group_id())),
+        str_replace(phylum, "_pseudo_.*$", ""), "_pseudo_cls_", sprintf("%04d", cur_group_id())),
       (str_detect(class, "Incerate") & str_detect(genus, "_pseudo_")) |
         (str_detect(class, "Incerate") & str_detect(class, "unclassified")) ~ paste0(
-          str_extract(phylum, "^[^_]+"), "_pseudo_cls_", sprintf("%04d", cur_group_id())),
+          str_replace(phylum, "_pseudo_.*$", ""), "_pseudo_cls_", sprintf("%04d", cur_group_id())),
       TRUE ~ class
     )
   ) %>%
@@ -532,12 +541,12 @@ pre_clustered_otus <- pre_clustered_otus %>%
   mutate(
     order = case_when(
       str_detect(order, "_pseudo_") ~ paste0(
-        str_extract(order, "^[^_]+"), "_pseudo_ord_", sprintf("%04d", cur_group_id())),
+        str_replace(order, "_pseudo_.*$", ""), "_pseudo_ord_", sprintf("%04d", cur_group_id())),
       str_detect(order, "unclassified") ~ paste0(
-        str_extract(class, "^[^_]+"), "_pseudo_ord_", sprintf("%04d", cur_group_id())),
+        str_replace(class, "_pseudo_.*$", ""), "_pseudo_ord_", sprintf("%04d", cur_group_id())),
       (str_detect(order, "Incerate") & str_detect(genus, "_pseudo_")) |
         (str_detect(order, "Incerate") & str_detect(order, "unclassified")) ~ paste0(
-          str_extract(class, "^[^_]+"), "_pseudo_ord_", sprintf("%04d", cur_group_id())),
+          str_replace(class, "_pseudo_.*$", ""), "_pseudo_ord_", sprintf("%04d", cur_group_id())),
       TRUE ~ order
     )
   ) %>%
@@ -546,12 +555,12 @@ pre_clustered_otus <- pre_clustered_otus %>%
   mutate(
     family = case_when(
       str_detect(family, "_pseudo_") ~ paste0(
-        str_extract(family, "^[^_]+"), "_pseudo_fam_", sprintf("%04d", cur_group_id())),
+        str_replace(family, "_pseudo_.*$", ""), "_pseudo_fam_", sprintf("%04d", cur_group_id())),
       str_detect(family, "unclassified") ~ paste0(
-        str_extract(order, "^[^_]+"), "_pseudo_fam_", sprintf("%04d", cur_group_id())),
+        str_replace(order, "_pseudo_.*$", ""), "_pseudo_fam_", sprintf("%04d", cur_group_id())),
       (str_detect(family, "Incerate") & str_detect(genus, "_pseudo_")) |
         (str_detect(family, "Incerate") & str_detect(family, "unclassified")) ~ paste0(
-          str_extract(order, "^[^_]+"), "_pseudo_fam_", sprintf("%04d", cur_group_id())),
+          str_replace(order, "_pseudo_.*$", ""), "_pseudo_fam_", sprintf("%04d", cur_group_id())),
       TRUE ~ family
     )
   ) %>%
@@ -560,12 +569,12 @@ pre_clustered_otus <- pre_clustered_otus %>%
   mutate(
     genus = case_when(
       str_detect(genus, "_pseudo_") ~ paste0(
-        str_extract(genus, "^[^_]+"), "_pseudo_gen_", sprintf("%04d", cur_group_id())),
+        str_replace(genus, "_pseudo_.*$", ""), "_pseudo_gen_", sprintf("%04d", cur_group_id())),
       str_detect(genus, "unclassified") ~ paste0(
-        str_extract(family, "^[^_]+"), "_pseudo_gen_", sprintf("%04d", cur_group_id())),
+        str_replace(family, "_pseudo_.*$", ""), "_pseudo_gen_", sprintf("%04d", cur_group_id())),
       (str_detect(genus, "Incerate") & str_detect(genus, "_pseudo_")) |
         (str_detect(genus, "Incerate") & str_detect(genus, "unclassified")) ~ paste0(
-          str_extract(family, "^[^_]+"), "_pseudo_gen_", sprintf("%04d", cur_group_id())),
+          str_replace(family, "_pseudo_.*$", ""), "_pseudo_gen_", sprintf("%04d", cur_group_id())),
       TRUE ~ genus
     )
   ) %>%
@@ -574,12 +583,12 @@ pre_clustered_otus <- pre_clustered_otus %>%
   mutate(
     species = case_when(
       str_detect(species, "_pseudo_") ~ paste0(
-        str_extract(species, "^[^_]+"), "_pseudo_sp_", sprintf("%04d", cur_group_id())),
+        str_replace(species, "_pseudo_.*$", ""), "_pseudo_sp_", sprintf("%04d", cur_group_id())),
       str_detect(species, "unclassified") ~ paste0(
-        str_extract(genus, "^[^_]+"), "_pseudo_sp_", sprintf("%04d", cur_group_id())),
+        str_replace(genus, "_pseudo_.*$", ""), "_pseudo_sp_", sprintf("%04d", cur_group_id())),
       (str_detect(species, "Incerate") & str_detect(species, "_pseudo_")) |
         (str_detect(species, "Incerate") & str_detect(species, "unclassified")) ~ paste0(
-          str_extract(genus, "^[^_]+"), "_pseudo_sp_", sprintf("%04d", cur_group_id())),
+          str_replace(genus, "_pseudo_.*$", ""), "_pseudo_sp_", sprintf("%04d", cur_group_id())),
       TRUE ~ species
     )
   ) %>%

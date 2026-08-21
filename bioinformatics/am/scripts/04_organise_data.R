@@ -358,9 +358,33 @@ fwrite(diversity_g_am, "./output/diversity_g_am.txt", sep = "\t")
 diversity_e_am <- compute_group_diversity("Endogonomycetes", "e_am")
 fwrite(diversity_e_am, "./output/diversity_e_am.txt", sep = "\t")
 
-dir.create("../../data/am", showWarnings = FALSE)
+dir.create("../../data/amf", showWarnings = FALSE)
 file.copy(from = list.files("./output/", full.names = TRUE),
-          to   = "../../data/am/",
+          to   = "../../data/amf/",
           recursive = TRUE)
+
+# Rename the group-specific outputs in data/amf/ to the AMF/G-AMF/M-AMF
+# terminology used downstream (alpha-diversity scripts, TITAN) -- this renames
+# the copies in data/amf/ only, not the pipeline-local files under ./output/
+# (or, for otu_classification_non_am.txt / otu_table_am_family.txt, the
+# upstream utils/cluster_otus.R outputs they're copied from), so re-running
+# this script is idempotent with respect to that local naming. Files with no
+# guild-specific token (classification.txt, otu_table.txt, otu_table_srs.txt,
+# dist_identity.txt, dist_phylogeny.txt, sequences.fasta, tree.newick,
+# otu_table_all_family.txt) are left as-is.
+file.rename("../../data/amf/diversity_am.txt",   "../../data/amf/diversity_amf.txt")
+file.rename("../../data/amf/diversity_g_am.txt", "../../data/amf/diversity_g_amf.txt")
+file.rename("../../data/amf/diversity_e_am.txt", "../../data/amf/diversity_m_amf.txt")
+
+file.rename("../../data/amf/otu_table_g_am.txt",      "../../data/amf/otu_table_g_amf.txt")
+file.rename("../../data/amf/otu_table_e_am.txt",      "../../data/amf/otu_table_m_amf.txt")
+file.rename("../../data/amf/dist_identity_g_am.txt",  "../../data/amf/dist_identity_g_amf.txt")
+file.rename("../../data/amf/dist_identity_e_am.txt",  "../../data/amf/dist_identity_m_amf.txt")
+file.rename("../../data/amf/dist_phylogeny_g_am.txt", "../../data/amf/dist_phylogeny_g_amf.txt")
+file.rename("../../data/amf/dist_phylogeny_e_am.txt", "../../data/amf/dist_phylogeny_m_amf.txt")
+
+# From utils/cluster_otus.R, swept into ./output/ before this script runs
+file.rename("../../data/amf/otu_classification_non_am.txt", "../../data/amf/otu_classification_non_amf.txt")
+file.rename("../../data/amf/otu_table_am_family.txt",        "../../data/amf/otu_table_amf_family.txt")
 
 message("---- Pipeline complete ----")
