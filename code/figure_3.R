@@ -8,14 +8,14 @@ require(tidyverse)
 # -- EMF ----------------------------------------------------------------------
 # ─────────────────────────────────────────────────────────────────────────────
 # Load taxonomy
-taxa_emf <- fread("data/emf/classification.txt") %>%
+taxa_emf <- fread("generated_data/emf/classification.txt") %>%
   left_join(
-    fread("data/emf/otu_table_srs_emf_genus.txt") %>%
+    fread("generated_data/emf/otu_table_srs_emf_genus.txt") %>%
       select(genus, lineage),
     by = "genus"
   )
 # Load OTUs
-otu_long_emf <- fread("data/emf/otu_table_srs.txt") %>%
+otu_long_emf <- fread("generated_data/emf/otu_table_srs.txt") %>%
   pivot_longer(
     cols = -otu_id,
     names_to = "sample_id",
@@ -144,10 +144,10 @@ print(plot_emf_lineage)
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Load taxonomy
-taxa_amf <- fread("data/amf/classification.txt")
+taxa_amf <- fread("generated_data/amf/classification.txt")
 
 # Load OTUs
-otu_long_amf <- fread("data/amf/otu_table_srs.txt") %>%
+otu_long_amf <- fread("generated_data/amf/otu_table_srs.txt") %>%
   pivot_longer(
     cols = -otu_id,
     names_to = "sample_id",

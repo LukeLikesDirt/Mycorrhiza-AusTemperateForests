@@ -6,7 +6,7 @@ require(terra)
 require(tidyverse)
 
 # Sample metadata
-data <- data.table::fread("data/sample_metadata.csv")
+data <- data.table::fread("generated_data/sample_metadata.csv")
 
 # ── READ MAP VECTORS ──────────────────────────────────────────────────────────
 

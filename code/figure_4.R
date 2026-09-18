@@ -9,7 +9,7 @@ source("code/functions_taxon_names.R")
 load("generated_data/figure_4.Rdata")
 
 # Set nitrogen axis limits from observed data range
-nitrogen_limits <- data.table::fread("data/sample_covariates.txt") %>%
+nitrogen_limits <- data.table::fread("generated_data/sample_covariates.txt") %>%
   mutate(mineral_nitrogen = nitrate + ammonium) %>%
   pull(mineral_nitrogen) %>%
   range()
@@ -42,7 +42,7 @@ theme_custom <- theme_minimal() +
 # ─────────────────────────────────────────────────────────────────────────────
 sorted_families_all <- sort(unique(c(titan_taxa_n_spp$family, titan_taxa_n_fam$family)))
 
-family_lineage <- data.table::fread("data/amf/classification.txt") %>%
+family_lineage <- data.table::fread("generated_data/amf/classification.txt") %>%
   mutate(lineage = if_else(am_group == "Endogonomycetes", "Densosporales", "Glomeromycota")) %>%
   distinct(family, lineage) %>%
   deframe()
